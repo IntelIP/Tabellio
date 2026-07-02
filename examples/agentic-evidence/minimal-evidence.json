@@ -1,0 +1,134 @@
+{
+  "schemaVersion": "agentic-git-evidence/v0.1",
+  "runId": "local-example-001",
+  "repo": "example/agentic-git-workflow",
+  "git": {
+    "baseRef": "main",
+    "headRef": "agentic/example-evidence",
+    "sha": "0000000000000000000000000000000000000000",
+    "pullRequest": "1",
+    "pullRequestUrl": "https://github.com/example/agentic-git-workflow/pull/1"
+  },
+  "actor": {
+    "type": "agent",
+    "id": "codex-local"
+  },
+  "agentRuntime": {
+    "name": "codex",
+    "model": "gpt-5",
+    "tooling": ["git", "github-actions"]
+  },
+  "taskSource": {
+    "type": "chat",
+    "summary": "Create a minimal evidence fixture for the Agentic Git workflow."
+  },
+  "changedFiles": [
+    "docs/research-grounding.md",
+    "schemas/evidence-envelope.schema.json",
+    "scripts/check-agentic-evidence-envelope.mjs"
+  ],
+  "commandsRun": [
+    {
+      "command": "node scripts/check-agentic-evidence-envelope.mjs --evidence examples/agentic-evidence/minimal-evidence.json",
+      "status": "passed",
+      "exitCode": 0
+    }
+  ],
+  "checks": [
+    {
+      "name": "agentic-evidence-envelope",
+      "status": "passed",
+      "summary": "Minimal fixture validates against v0.1 required fields and default-deny policy."
+    }
+  ],
+  "approvals": [
+    {
+      "actionClass": "deployment",
+      "status": "required"
+    }
+  ],
+  "externalActionPolicy": {
+    "defaultMode": "deny",
+    "actionClasses": [
+      {
+        "id": "deployment",
+        "requiresExplicitApproval": true,
+        "approved": false,
+        "attempted": false,
+        "expectedSideEffects": ["none before approval"],
+        "forbiddenSideEffects": ["production deploy", "hosting mutation"],
+        "verificationCommand": "git status --short"
+      },
+      {
+        "id": "database-migration",
+        "requiresExplicitApproval": true,
+        "approved": false,
+        "attempted": false,
+        "expectedSideEffects": ["none before approval"],
+        "forbiddenSideEffects": ["schema mutation", "data mutation"],
+        "verificationCommand": "git status --short"
+      },
+      {
+        "id": "infrastructure-change",
+        "requiresExplicitApproval": true,
+        "approved": false,
+        "attempted": false,
+        "expectedSideEffects": ["none before approval"],
+        "forbiddenSideEffects": ["cloud resource mutation"],
+        "verificationCommand": "git status --short"
+      },
+      {
+        "id": "dns-or-hosting-change",
+        "requiresExplicitApproval": true,
+        "approved": false,
+        "attempted": false,
+        "expectedSideEffects": ["none before approval"],
+        "forbiddenSideEffects": ["DNS mutation", "hosting config mutation"],
+        "verificationCommand": "git status --short"
+      },
+      {
+        "id": "billing-or-live-money",
+        "requiresExplicitApproval": true,
+        "approved": false,
+        "attempted": false,
+        "expectedSideEffects": ["none before approval"],
+        "forbiddenSideEffects": ["billing mutation", "live financial transaction"],
+        "verificationCommand": "git status --short"
+      },
+      {
+        "id": "credentialed-provider-read",
+        "requiresExplicitApproval": true,
+        "approved": false,
+        "attempted": false,
+        "expectedSideEffects": ["none before approval"],
+        "forbiddenSideEffects": ["credentialed API read"],
+        "verificationCommand": "git status --short"
+      },
+      {
+        "id": "secret-value-read",
+        "requiresExplicitApproval": true,
+        "approved": false,
+        "attempted": false,
+        "expectedSideEffects": ["none before approval"],
+        "forbiddenSideEffects": ["secret value read", "secret value logging"],
+        "verificationCommand": "git status --short"
+      },
+      {
+        "id": "destructive-workspace-action",
+        "requiresExplicitApproval": true,
+        "approved": false,
+        "attempted": false,
+        "expectedSideEffects": ["none before approval"],
+        "forbiddenSideEffects": ["file deletion", "history rewrite"],
+        "verificationCommand": "git status --short"
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "name": "minimal evidence fixture",
+      "path": "examples/agentic-evidence/minimal-evidence.json"
+    }
+  ],
+  "createdAt": "2026-07-02T00:00:00.000Z"
+}

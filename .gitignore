@@ -1,0 +1,8 @@
+node_modules/
+agentic-pr-evidence.json
+.DS_Store
+.env
+.env.*
+!.env.example
+coverage/
+dist/

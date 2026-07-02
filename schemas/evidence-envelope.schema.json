@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-git.dev/schemas/evidence-envelope.schema.json",
+  "title": "Agentic Git Evidence Envelope",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "runId",
+    "repo",
+    "git",
+    "actor",
+    "agentRuntime",
+    "taskSource",
+    "changedFiles",
+    "commandsRun",
+    "checks",
+    "approvals",
+    "externalActionPolicy",
+    "artifacts",
+    "createdAt"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "agentic-git-evidence/v0.1"
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "git": {
+      "type": "object",
+      "required": ["baseRef", "headRef", "sha"],
+      "additionalProperties": true,
+      "properties": {
+        "baseRef": { "type": "string", "minLength": 1 },
+        "headRef": { "type": "string", "minLength": 1 },
+        "sha": { "type": "string", "minLength": 1 },
+        "pullRequest": { "type": "string" },
+        "pullRequestUrl": { "type": "string" }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "required": ["type", "id"],
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["human", "agent", "ci", "system"]
+        },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "agentRuntime": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "model": { "type": "string" },
+        "tooling": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "taskSource": {
+      "type": "object",
+      "required": ["type", "summary"],
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["issue", "pull_request", "chat", "ticket", "manual", "other"]
+        },
+        "summary": { "type": "string", "minLength": 1 },
+        "url": { "type": "string" }
+      }
+    },
+    "changedFiles": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "commandsRun": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["command", "status"],
+        "additionalProperties": true,
+        "properties": {
+          "command": { "type": "string", "minLength": 1 },
+          "status": {
+            "type": "string",
+            "enum": ["passed", "failed", "skipped"]
+          },
+          "exitCode": { "type": "integer" },
+          "startedAt": { "type": "string" },
+          "completedAt": { "type": "string" }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "additionalProperties": true,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "status": {
+            "type": "string",
+            "enum": ["passed", "failed", "skipped", "pending"]
+          },
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["actionClass", "status"],
+        "additionalProperties": true,
+        "properties": {
+          "actionClass": { "type": "string", "minLength": 1 },
+          "status": {
+            "type": "string",
+            "enum": ["not_required", "required", "approved", "denied"]
+          },
+          "approvedBy": { "type": "string" },
+          "approvedAt": { "type": "string" }
+        }
+      }
+    },
+    "externalActionPolicy": {
+      "$ref": "external-action-policy.schema.json"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path"],
+        "additionalProperties": true,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string" }
+        }
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

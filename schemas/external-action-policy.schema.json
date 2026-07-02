@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-git.dev/schemas/external-action-policy.schema.json",
+  "title": "Agentic Git External Action Policy",
+  "type": "object",
+  "required": ["defaultMode", "actionClasses"],
+  "additionalProperties": true,
+  "properties": {
+    "defaultMode": {
+      "type": "string",
+      "enum": ["deny", "default-deny"]
+    },
+    "actionClasses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "requiresExplicitApproval",
+          "approved",
+          "attempted",
+          "expectedSideEffects",
+          "forbiddenSideEffects",
+          "verificationCommand"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requiresExplicitApproval": {
+            "type": "boolean",
+            "const": true
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "attempted": {
+            "type": "boolean"
+          },
+          "expectedSideEffects": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "forbiddenSideEffects": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "verificationCommand": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}
