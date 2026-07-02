@@ -114,7 +114,7 @@ function getChangedFiles() {
   const localFiles = [...splitLines(stagedOrWorking), ...splitLines(untracked)];
   if (localFiles.length > 0) return [...new Set(localFiles)].sort();
 
-  const lastCommit = git(["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]);
+  const lastCommit = git(["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "HEAD"]);
   return splitLines(lastCommit).sort();
 }
 
