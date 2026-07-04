@@ -1,39 +1,32 @@
 # Evidence Schema
 
-The evidence envelope is the core public contract for Agentic Git Workflow.
+The evidence envelope is the core contract.
 
-Schema file:
+Schema files:
 
-```text
-schemas/evidence-envelope.schema.json
-```
+- `schemas/evidence-envelope.schema.json`
+- `schemas/external-action-policy.schema.json`
 
-External action policy schema:
-
-```text
-schemas/external-action-policy.schema.json
-```
-
-## Required Fields
+## Required Envelope Fields
 
 | Field | Purpose |
 | --- | --- |
-| `schemaVersion` | Versioned evidence contract. Current value: `agentic-git-evidence/v0.1`. |
-| `runId` | Unique id for the evidence-producing run. |
-| `repo` | Repository name. |
-| `git` | Base ref, head ref, commit SHA, and optional PR metadata. |
-| `actor` | Human, agent, CI, or system identity that produced evidence. |
-| `agentRuntime` | Runtime/tooling metadata. |
-| `taskSource` | Why work started. |
-| `changedFiles` | Files changed by the PR or local run. |
-| `commandsRun` | Commands executed and their statuses. |
-| `checks` | Higher-level validation results. |
-| `approvals` | Approval status by action class. |
-| `externalActionPolicy` | Default-deny side-effect policy. |
-| `artifacts` | Evidence artifacts produced by the run. |
-| `createdAt` | Creation timestamp. |
+| `schemaVersion` | Contract version. Current value: `agentic-git-evidence/v0.1` |
+| `runId` | Unique evidence run id |
+| `repo` | Repository name |
+| `git` | Base ref, head ref, SHA, optional PR metadata |
+| `actor` | Human, agent, CI, or system identity |
+| `agentRuntime` | Runtime/tooling metadata |
+| `taskSource` | Why work started |
+| `changedFiles` | Files changed by the PR or local run |
+| `commandsRun` | Commands executed and their statuses |
+| `checks` | Higher-level validation results |
+| `approvals` | Approval status by action class |
+| `externalActionPolicy` | Default-deny side-effect policy |
+| `artifacts` | Evidence artifacts produced by the run |
+| `createdAt` | Creation timestamp |
 
-## Minimal Example
+## Minimal Shape
 
 ```json
 {
@@ -69,44 +62,19 @@ schemas/external-action-policy.schema.json
 }
 ```
 
-## Command Status
+## Status Values
 
-`commandsRun[].status` values:
+| Field | Allowed Values |
+| --- | --- |
+| `commandsRun[].status` | `passed`, `failed`, `skipped` |
+| `checks[].status` | `passed`, `failed`, `skipped`, `pending` |
+| `approvals[].status` | `not_required`, `required`, `approved`, `denied` |
 
-- `passed`
-- `failed`
-- `skipped`
-
-Skipped commands should include enough context for reviewers to decide whether the PR can proceed.
-
-## Check Status
-
-`checks[].status` values:
-
-- `passed`
-- `failed`
-- `skipped`
-- `pending`
-
-`pending` is acceptable while a workflow runs. It should not be treated as merge-ready.
-
-## Approval Status
-
-`approvals[].status` values:
-
-- `not_required`
-- `required`
-- `approved`
-- `denied`
-
-Protected external actions should be `required` until explicit approval exists.
+Failed and skipped checks should stay visible. A failing evidence packet is better than a missing one.
 
 ## External Action Policy
 
-`externalActionPolicy.defaultMode` must be:
-
-- `deny`
-- `default-deny`
+`externalActionPolicy.defaultMode` must be `deny` or `default-deny`.
 
 Required action classes:
 
@@ -121,18 +89,18 @@ Required action classes:
 
 Each action class requires:
 
-- `requiresExplicitApproval: true`
-- `approved`
-- `attempted`
-- `expectedSideEffects`
-- `forbiddenSideEffects`
-- `verificationCommand`
+| Field | Rule |
+| --- | --- |
+| `requiresExplicitApproval` | Must be `true` |
+| `approved` | Boolean approval state |
+| `attempted` | Boolean execution-attempt state |
+| `expectedSideEffects` | Array |
+| `forbiddenSideEffects` | Non-empty array |
+| `verificationCommand` | Non-empty string |
 
 The checker fails when `attempted: true` and `approved !== true`.
 
-## Validation
-
-Validate an existing file:
+## Validation Commands
 
 ```bash
 node scripts/check-agentic-evidence-envelope.mjs --evidence agentic-pr-evidence.json
@@ -149,4 +117,4 @@ node scripts/check-agentic-external-actions.mjs --evidence agentic-pr-evidence.j
 
 ## Boundary
 
-This schema is intentionally simpler than SLSA provenance or in-toto link metadata. It can later export to those formats, but v0 should not claim compliance.
+This schema is simpler than SLSA provenance or in-toto link metadata. Future versions can export to those formats, but v0.1.0 does not claim compliance.
