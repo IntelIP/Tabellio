@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/IntelIP/agentic-git-workflow/schemas/external-action-policy.schema.json",
+  "$id": "https://raw.githubusercontent.com/IntelIP/agentic-git-workflow/main/schemas/external-action-policy.schema.json",
   "title": "Evident External Action Policy",
   "type": "object",
   "required": ["defaultMode", "actionClasses"],

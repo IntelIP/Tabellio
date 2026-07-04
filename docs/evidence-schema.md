@@ -26,41 +26,11 @@ Schema files:
 | `artifacts` | Evidence artifacts produced by the run |
 | `createdAt` | Creation timestamp |
 
-## Minimal Shape
+## Minimal Valid Fixture
 
-```json
-{
-  "schemaVersion": "evident-evidence/v0.1",
-  "runId": "local-example-001",
-  "repo": "example/agentic-git-workflow",
-  "git": {
-    "baseRef": "main",
-    "headRef": "evident/example-evidence",
-    "sha": "0000000000000000000000000000000000000000"
-  },
-  "actor": {
-    "type": "agent",
-    "id": "codex-local"
-  },
-  "agentRuntime": {
-    "name": "codex"
-  },
-  "taskSource": {
-    "type": "chat",
-    "summary": "Create a minimal evidence fixture."
-  },
-  "changedFiles": ["README.md"],
-  "commandsRun": [],
-  "checks": [],
-  "approvals": [],
-  "externalActionPolicy": {
-    "defaultMode": "deny",
-    "actionClasses": []
-  },
-  "artifacts": [],
-  "createdAt": "2026-07-02T00:00:00.000Z"
-}
-```
+The smallest maintained valid fixture lives at `examples/evident-evidence/minimal-evidence.json`.
+
+Use that fixture instead of copying a shortened shape: the validators require at least one command, one check, and the complete default-deny action-class set.
 
 ## Status Values
 

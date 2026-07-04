@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/IntelIP/agentic-git-workflow/schemas/evidence-envelope.schema.json",
+  "$id": "https://raw.githubusercontent.com/IntelIP/agentic-git-workflow/main/schemas/evidence-envelope.schema.json",
   "title": "Evident Evidence Envelope",
   "type": "object",
   "required": [
