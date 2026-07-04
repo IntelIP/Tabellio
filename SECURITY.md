@@ -19,7 +19,7 @@ Do not include live secrets, credentials, private keys, tokens, or account data 
 
 ## Security Model
 
-Agentic Git Workflow assumes generated code and agent claims are untrusted until deterministic checks validate the evidence packet.
+Evident assumes generated code and agent claims are untrusted until deterministic checks validate the evidence packet.
 
 Default posture:
 

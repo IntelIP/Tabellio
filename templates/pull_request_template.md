@@ -1,4 +1,4 @@
-## Agentic Git Evidence
+## Evident Evidence
 
 - [ ] Evidence envelope generated
 - [ ] Evidence envelope validated

@@ -1,4 +1,4 @@
-name: Agentic Git Evidence
+name: Evident Evidence
 
 on:
   pull_request:

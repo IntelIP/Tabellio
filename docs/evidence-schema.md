@@ -1,6 +1,6 @@
 # Evidence Schema
 
-The evidence envelope is the core contract.
+The evidence envelope is the core Evident contract.
 
 Schema files:
 

@@ -1,7 +1,7 @@
 {
   "name": "agentic-git-workflow",
   "version": "0.1.0",
-  "description": "Evidence-backed pull request workflow for agentic development.",
+  "description": "Evident: evidence-backed pull request governance for agentic development.",
   "type": "module",
   "license": "Apache-2.0",
   "author": "IntelIP",
@@ -31,6 +31,11 @@
     "evidence",
     "provenance",
     "ci",
-    "workflow"
+    "workflow",
+    "evident",
+    "json-schema",
+    "sarif",
+    "openssf-scorecard",
+    "github-actions"
   ]
 }

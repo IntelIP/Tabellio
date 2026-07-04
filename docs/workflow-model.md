@@ -1,6 +1,6 @@
-# Workflow Model
+# Evident Workflow Model
 
-Agentic Git Workflow turns an agentic coding run into a reviewable pull request packet.
+Evident turns an agentic coding run into a reviewable pull request packet.
 
 ## Core Objects
 

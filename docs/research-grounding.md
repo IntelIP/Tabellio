@@ -1,6 +1,6 @@
-# Research Grounding
+# Evident Research Grounding
 
-Agentic Git Workflow combines proven software-delivery patterns for AI-assisted pull requests.
+Evident combines proven software-delivery patterns for AI-assisted pull requests.
 
 It does not introduce a new security standard. It applies existing ideas from provenance, code review, merge queues, static analysis, evals, and observability.
 
@@ -19,7 +19,7 @@ The agent is optional. The evidence contract is the product.
 
 ## Prior Art Map
 
-| Pattern | Example Sources | What Agentic Git Borrows |
+| Pattern | Example Sources | What Evident Borrows |
 | --- | --- | --- |
 | Provenance | [SLSA](https://slsa.dev/spec/v1.0/levels), [SLSA build provenance](https://slsa.dev/spec/draft/build-provenance) | Record where work came from, what inputs existed, and which process produced the artifact |
 | Supply-chain steps | [in-toto](https://in-toto.io/), [in-toto docs](https://in-toto.io/docs/getting-started/) | Treat plan, edit, test, review, and merge as auditable steps |
