@@ -59,7 +59,7 @@ jobs:
         run: ${{ inputs.validation_command }}
 
       - name: Checkout Evident toolkit
-        if: ${{ github.repository != 'IntelIP/agentic-git-workflow' && (hashFiles('scripts/write-evident-evidence-envelope.mjs') == '' || hashFiles('scripts/check-evident-evidence-envelope.mjs') == '' || hashFiles('scripts/check-evident-external-actions.mjs') == '') }}
+        if: ${{ always() && github.repository != 'IntelIP/agentic-git-workflow' && (hashFiles('scripts/write-evident-evidence-envelope.mjs') == '' || hashFiles('scripts/check-evident-evidence-envelope.mjs') == '' || hashFiles('scripts/check-evident-external-actions.mjs') == '') }}
         uses: actions/checkout@v5
         with:
           repository: IntelIP/agentic-git-workflow
@@ -69,6 +69,7 @@ jobs:
 
       - name: Resolve Evident toolkit path
         id: toolkit
+        if: ${{ always() }}
         shell: bash
         run: |
           if [ -f scripts/write-evident-evidence-envelope.mjs ] && \
