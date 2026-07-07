@@ -7,6 +7,9 @@
 ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI-2088FF?logo=githubactions&logoColor=white)
 ![JSON Schema](https://img.shields.io/badge/JSON%20Schema-evidence%20contract-0B6BFF)
 ![SARIF](https://img.shields.io/badge/SARIF-code%20scanning-2563EB)
+![Graphite](https://img.shields.io/badge/Graphite-stacked%20review-6F42C1)
+![Entire](https://img.shields.io/badge/Entire-checkpoint%20ledger-111827)
+![Code Storage](https://img.shields.io/badge/Code%20Storage-git%20substrate-0F766E)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 
 Evidence-backed pull request governance for agentic development.
@@ -55,8 +58,24 @@ Evident gives reviewers a repeatable answer to:
 | Security signal | OpenSSF Scorecard |
 | Code scanning output | SARIF |
 | Review surface | GitHub Pull Requests |
+| Stacked review | Graphite or Graphite-like PR stacks |
+| Checkpoint ledger | Entire or compatible Git-backed session ledger |
+| Git substrate | GitHub today; Code Storage-compatible machine Git layer |
+| Agent review | Codex review, when configured |
 | Governance model | Default-deny external action policy |
 | Prior-art alignment | SLSA-inspired, in-toto-inspired |
+
+## Agentic Tooling Context
+
+Evident is the evidence gate in a larger agentic Git stack:
+
+- Code Storage-style substrate for machine-first Git repositories, branches, and code state
+- Entire-style checkpoint ledger for agent session context and why-traceability
+- Graphite-style stacked PR workflow for small dependent changes
+- GitHub Pull Requests and GitHub Actions for review, checks, and artifacts
+- Codex review as an optional agentic review layer
+
+See [Agentic tooling stack](docs/tooling-stack.md) for the full layer map and vendor-boundary notes.
 
 ## Service Modules
 
@@ -167,6 +186,7 @@ The workflow writes `evident-pr-evidence.json`, validates the envelope, checks t
 ## Docs
 
 - [Getting started](docs/getting-started.md)
+- [Agentic tooling stack](docs/tooling-stack.md)
 - [Workflow model](docs/workflow-model.md)
 - [Evidence schema](docs/evidence-schema.md)
 - [Codex review](docs/codex-review.md)

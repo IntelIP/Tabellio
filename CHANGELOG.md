@@ -16,6 +16,7 @@ Initial public release.
 - Minimal valid evidence fixture.
 - OpenSSF Scorecard workflow.
 - Research grounding, schema reference, and workflow model docs.
+- Agentic tooling stack guide covering Code Storage, Entire, Graphite, GitHub, Codex, and Evident boundaries.
 
 ### Release Gates
 
