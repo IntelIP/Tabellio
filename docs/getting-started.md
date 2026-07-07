@@ -32,14 +32,14 @@ jobs:
       toolkit_ref: v0.1.0
 ```
 
-Use `toolkit_ref` to keep the workflow runner on the same Evident release as the reusable workflow. Before the first release tag exists, use `main` for both refs.
+`toolkit_ref` is required for reusable workflow calls. Consumer repositories that do not vendor the Evident scripts use it for fallback toolkit checkout. Pin it to the same release tag or SHA as the reusable workflow. Before the first release tag exists, use `main` for both refs.
 
 ## What The Workflow Does
 
 1. Checks out the pull request repository.
-2. Uses local Evident scripts when the repository vendors them.
-3. Otherwise checks out the Evident toolkit at `toolkit_ref`.
-4. Runs the optional validation command.
+2. Runs the optional validation command before adding any fallback toolkit files.
+3. Uses local Evident scripts when the repository vendors them.
+4. Otherwise checks out the Evident toolkit at `toolkit_ref`.
 5. Writes `evident-pr-evidence.json`.
 6. Validates the evidence envelope.
 7. Checks the default-deny external action policy.

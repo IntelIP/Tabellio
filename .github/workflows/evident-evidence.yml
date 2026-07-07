@@ -15,9 +15,8 @@ on:
         default: ""
         type: string
       toolkit_ref:
-        description: Evident toolkit ref to use when scripts are not vendored in the caller repo.
-        required: false
-        default: main
+        description: Evident toolkit ref for fallback scripts. Pin to the same ref as the reusable workflow.
+        required: true
         type: string
   workflow_call:
     inputs:
@@ -32,9 +31,8 @@ on:
         default: ""
         type: string
       toolkit_ref:
-        description: Evident toolkit ref to use when scripts are not vendored in the caller repo.
-        required: false
-        default: main
+        description: Evident toolkit ref for fallback scripts. Pin to the same ref as the reusable workflow.
+        required: true
         type: string
 
 permissions:
@@ -50,19 +48,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Optional validation command
+        id: validation
+        if: ${{ inputs.validation_command }}
+        run: ${{ inputs.validation_command }}
+
       - name: Checkout Evident toolkit
         if: ${{ github.repository != 'IntelIP/agentic-git-workflow' && (hashFiles('scripts/write-evident-evidence-envelope.mjs') == '' || hashFiles('scripts/check-evident-evidence-envelope.mjs') == '' || hashFiles('scripts/check-evident-external-actions.mjs') == '') }}
         uses: actions/checkout@v5
         with:
           repository: IntelIP/agentic-git-workflow
-          ref: ${{ inputs.toolkit_ref || 'main' }}
+          ref: ${{ inputs.toolkit_ref }}
           path: .evident/toolkit
           persist-credentials: false
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
 
       - name: Resolve Evident toolkit path
         id: toolkit
@@ -77,11 +80,6 @@ jobs:
           else
             echo "path=.evident/toolkit" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Optional validation command
-        id: validation
-        if: ${{ inputs.validation_command }}
-        run: ${{ inputs.validation_command }}
 
       - name: Write evidence envelope
         if: always()
