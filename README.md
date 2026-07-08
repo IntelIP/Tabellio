@@ -111,7 +111,7 @@ jobs:
       toolkit_ref: v0.1.0
 ```
 
-`toolkit_ref` is required when the consumer repository does not vendor the Evident scripts. Pin it to the same release tag or SHA as the reusable workflow. Before the first release tag exists, use `main` instead of `v0.1.0`.
+`toolkit_ref` is required when the consumer repository does not vendor the Evident scripts. In consumer repositories, setting it forces the workflow to use the pinned Evident toolkit instead of PR-controlled local scripts. Pin it to the same release tag or SHA as the reusable workflow. Before the first release tag exists, use `main` instead of `v0.1.0`.
 
 Validate the bundled fixture:
 

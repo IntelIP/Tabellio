@@ -65,15 +65,15 @@ jobs:
         env:
           TOOLKIT_REF: ${{ inputs.toolkit_ref || '' }}
         run: |
-          if [ -f scripts/write-evident-evidence-envelope.mjs ] && \
-            [ -f scripts/check-evident-evidence-envelope.mjs ] && \
-            [ -f scripts/check-evident-external-actions.mjs ]; then
-            echo "path=." >> "$GITHUB_OUTPUT"
-          elif [ "$GITHUB_REPOSITORY" = "IntelIP/agentic-git-workflow" ]; then
+          if [ "$GITHUB_REPOSITORY" = "IntelIP/agentic-git-workflow" ]; then
             echo "path=." >> "$GITHUB_OUTPUT"
           elif [ -n "$TOOLKIT_REF" ]; then
             echo "path=.evident/toolkit" >> "$GITHUB_OUTPUT"
             echo "ref=$TOOLKIT_REF" >> "$GITHUB_OUTPUT"
+          elif [ -f scripts/write-evident-evidence-envelope.mjs ] && \
+            [ -f scripts/check-evident-evidence-envelope.mjs ] && \
+            [ -f scripts/check-evident-external-actions.mjs ]; then
+            echo "path=." >> "$GITHUB_OUTPUT"
           else
             echo "::error::toolkit_ref is required when Evident scripts are not vendored. Pin it to the same ref as the reusable workflow."
             echo "path=.evident/toolkit" >> "$GITHUB_OUTPUT"
