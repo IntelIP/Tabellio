@@ -1,20 +1,28 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
+
+import { canonicalJson, readContextPacket } from "./lib/context-packet.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 const outPath = args.out ?? "tabellio-pr-evidence.json";
+const absoluteOutPath = resolve(outPath);
+const absoluteContextPath = args.context ? resolve(args.context) : null;
+const recordedContextPath = absoluteContextPath
+  ? relative(dirname(absoluteOutPath), absoluteContextPath) || basename(absoluteContextPath)
+  : null;
+const context = absoluteContextPath ? await readContextPacket(absoluteContextPath) : null;
 const now = new Date().toISOString();
-const changedFiles = getChangedFiles();
+const changedFiles = context ? context.changeSet.files.map((file) => file.path).sort() : getChangedFiles();
 const validationCommand = env("TABELLIO_VALIDATION_COMMAND");
 const validationStatus = normalizeStatus(env("TABELLIO_VALIDATION_STATUS") || "skipped");
 const writerCommand = env("TABELLIO_WRITER_COMMAND") || `node ${process.argv[1] || "scripts/write-tabellio-evidence-envelope.mjs"}`;
-const sha = env("GITHUB_SHA") || git(["rev-parse", "HEAD"]) || "unknown";
-const baseRef = env("GITHUB_BASE_REF") || git(["rev-parse", "--abbrev-ref", "HEAD"]) || "main";
-const headRef = env("GITHUB_HEAD_REF") || git(["rev-parse", "--abbrev-ref", "HEAD"]) || "HEAD";
-const repo = env("GITHUB_REPOSITORY") || basename(git(["rev-parse", "--show-toplevel"]) || process.cwd());
-const runId = env("GITHUB_RUN_ID") || `local-${sha.slice(0, 12)}-${Date.now()}`;
+const sha = context?.refs.head.commit || env("GITHUB_SHA") || git(["rev-parse", "HEAD"]) || "unknown";
+const baseRef = context?.refs.base.name || env("GITHUB_BASE_REF") || git(["rev-parse", "--abbrev-ref", "HEAD"]) || "main";
+const headRef = context?.refs.head.name || env("GITHUB_HEAD_REF") || git(["rev-parse", "--abbrev-ref", "HEAD"]) || "HEAD";
+const repo = context?.repository.id || env("GITHUB_REPOSITORY") || basename(git(["rev-parse", "--show-toplevel"]) || process.cwd());
+const runId = context?.runId || env("GITHUB_RUN_ID") || `local-${sha.slice(0, 12)}-${Date.now()}`;
 
 const evidence = {
   schemaVersion: "tabellio-evidence/v0.1",
@@ -28,8 +36,8 @@ const evidence = {
     pullRequestUrl: readPullRequestUrl(),
   },
   actor: {
-    type: env("GITHUB_ACTOR") ? "ci" : "agent",
-    id: env("GITHUB_ACTOR") || env("USER") || "local-agent",
+    type: context?.actor.type || (env("GITHUB_ACTOR") ? "ci" : "agent"),
+    id: context?.actor.id || env("GITHUB_ACTOR") || env("USER") || "local-agent",
   },
   agentRuntime: {
     name: env("TABELLIO_RUNTIME_NAME") || "unspecified",
@@ -38,7 +46,7 @@ const evidence = {
   },
   taskSource: {
     type: env("TABELLIO_TASK_SOURCE_TYPE") || "manual",
-    summary: env("TABELLIO_TASK_SUMMARY") || "Tabellio evidence envelope generated from repository state.",
+    summary: context?.task.summary || env("TABELLIO_TASK_SUMMARY") || "Tabellio evidence envelope generated from repository state.",
     url: env("TABELLIO_TASK_URL") || "",
   },
   changedFiles,
@@ -86,12 +94,31 @@ const evidence = {
     {
       name: "Tabellio evidence envelope",
       path: outPath,
+      hashScope: "canonical-json-without-this-artifact-sha256",
     },
+    ...(context ? [{
+      name: "Tabellio native Git context",
+      path: recordedContextPath,
+      sha256: sha256(readFileSync(absoluteContextPath)),
+      hashScope: "file-bytes",
+    }] : []),
   ],
   createdAt: now,
 };
 
-evidence.artifacts[0].sha256 = sha256(JSON.stringify(evidence, null, 2));
+if (context) {
+  evidence.context = {
+    schemaVersion: context.schemaVersion,
+    packetPath: recordedContextPath,
+    digest: context.integrity.digest,
+    baseCommit: context.refs.base.commit,
+    headCommit: context.refs.head.commit,
+    mergeBaseCommit: context.refs.mergeBase.commit,
+    mergeClean: context.mergePreview.clean,
+  };
+}
+
+evidence.artifacts[0].sha256 = evidenceDigest(evidence, 0);
 
 mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, `${JSON.stringify(evidence, null, 2)}\n`);
@@ -190,6 +217,12 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function evidenceDigest(value, artifactIndex) {
+  const copy = structuredClone(value);
+  delete copy.artifacts[artifactIndex].sha256;
+  return sha256(canonicalJson(copy));
+}
+
 function splitCsv(value) {
   return value
     .split(",")
@@ -208,14 +241,12 @@ function env(name) {
   return process.env[name] ?? "";
 }
 
-function basename(path) {
-  return path.split("/").filter(Boolean).at(-1) ?? path;
-}
-
 function parseArgs(argv) {
   const parsed = {};
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === "--out") parsed.out = argv[++index];
+    else if (argv[index] === "--context") parsed.context = argv[++index];
+    else throw new Error(`Unknown argument: ${argv[index]}`);
   }
   return parsed;
 }

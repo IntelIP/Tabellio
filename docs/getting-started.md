@@ -1,13 +1,14 @@
 # Getting Started
 
-Tabellio adds a machine-readable evidence packet to pull requests. It is agent-agnostic: humans, CI, coding agents, and mixed workflows can all produce the same review surface.
+Tabellio captures provider-neutral Git context and can attach a machine-readable evidence packet to pull requests. Humans, CI, and coding agents use the same contract.
 
 ## Requirements
 
-- GitHub repository
-- GitHub Actions enabled
+- Git repository
 - Node.js 20 or later
-- Pull request review flow
+- Git 2.38 or later with `merge-tree --write-tree`
+
+GitHub and GitHub Actions are required only for the optional reusable workflow below.
 
 ## Add The Reusable Workflow
 
@@ -40,10 +41,11 @@ jobs:
 2. Runs the optional validation command before adding any fallback toolkit files.
 3. Uses local Tabellio scripts when the repository vendors them.
 4. Otherwise checks out the Tabellio toolkit at `toolkit_ref`.
-5. Writes `tabellio-pr-evidence.json`.
-6. Validates the evidence envelope.
-7. Checks the default-deny external action policy.
-8. Uploads the evidence artifact.
+5. Captures and validates `tabellio-context.json` from standard Git state.
+6. Writes `tabellio-pr-evidence.json` bound to the context packet.
+7. Validates the evidence envelope.
+8. Checks the default-deny external action policy.
+9. Uploads both artifacts.
 
 ## Local Validation
 
@@ -51,7 +53,9 @@ From this repository:
 
 ```bash
 npm run check
-node scripts/write-tabellio-evidence-envelope.mjs --out /tmp/tabellio-pr-evidence.json
+node scripts/capture-tabellio-context.mjs --repo . --repo-id example/repository --base main --head HEAD --out /tmp/tabellio-context.json
+node scripts/check-tabellio-context.mjs --context /tmp/tabellio-context.json
+node scripts/write-tabellio-evidence-envelope.mjs --context /tmp/tabellio-context.json --out /tmp/tabellio-pr-evidence.json
 node scripts/check-tabellio-evidence-envelope.mjs --evidence /tmp/tabellio-pr-evidence.json
 node scripts/check-tabellio-external-actions.mjs --evidence /tmp/tabellio-pr-evidence.json
 ```

@@ -2,6 +2,21 @@
 
 All notable changes to Tabellio are recorded here.
 
+## Unreleased
+
+### Added
+
+- Provider-neutral `RepositoryStore` contract and standard Git provider.
+- Bare-repository, contained-worktree, Git-note, merge-preview, and compare-and-swap primitives.
+- Integrity-protected `tabellio-context/v0.1` packet and CLI capture/check commands.
+- Optional evidence-to-context commit binding.
+- Native Git race, conflict, containment, integrity, and compatibility tests.
+
+### Fixed
+
+- Evidence artifact self-integrity now has an explicit canonical hash scope.
+- Handwritten policy validators now require approval booleans, unique action IDs, and non-empty forbidden side effects.
+
 ## 0.1.0 - 2026-07-08
 
 Initial public release.

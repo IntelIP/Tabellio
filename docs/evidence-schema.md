@@ -6,6 +6,7 @@ Schema files:
 
 - `schemas/evidence-envelope.schema.json`
 - `schemas/external-action-policy.schema.json`
+- `schemas/context-packet.schema.json`
 
 ## Required Envelope Fields
 
@@ -25,6 +26,22 @@ Schema files:
 | `externalActionPolicy` | Default-deny side-effect policy |
 | `artifacts` | Evidence artifacts produced by the run |
 | `createdAt` | Creation timestamp |
+
+When evidence is written with `--context`, it also carries an optional `context` binding. That binding pins the evidence to the context digest and its base, head, and merge-base commits. Old `tabellio-evidence/v0.1` envelopes remain valid without it.
+
+## Context Packet
+
+`tabellio-context/v0.1` records:
+
+- repository identity without a local filesystem path
+- actor and task summary
+- named base, head, and merge-base refs with immutable commit IDs
+- changed file status and paths
+- Git-note checkpoint digests and allowlisted summaries
+- read-only merge result and conflict paths
+- SHA-256 integrity over canonical JSON without the `integrity` field
+
+The evidence envelope's self artifact uses `canonical-json-without-this-artifact-sha256`. This avoids a circular file hash while making tampering detectable. Normal artifacts use `file-bytes`.
 
 ## Minimal Valid Fixture
 
@@ -70,11 +87,14 @@ Each action class requires:
 
 The checker fails when `attempted: true` and `approved !== true`.
 
+This policy validates declared intent and results. It does not monitor operating-system calls or prove that an undeclared provider action never happened. Runtime sandboxing and credential isolation remain separate controls.
+
 ## Validation Commands
 
 ```bash
 node scripts/check-tabellio-evidence-envelope.mjs --evidence tabellio-pr-evidence.json
 node scripts/check-tabellio-external-actions.mjs --evidence tabellio-pr-evidence.json
+node scripts/check-tabellio-context.mjs --context tabellio-context.json
 ```
 
 Generate and validate:
@@ -83,6 +103,14 @@ Generate and validate:
 node scripts/write-tabellio-evidence-envelope.mjs --out tabellio-pr-evidence.json
 node scripts/check-tabellio-evidence-envelope.mjs --evidence tabellio-pr-evidence.json
 node scripts/check-tabellio-external-actions.mjs --evidence tabellio-pr-evidence.json
+```
+
+Bind evidence to native Git context:
+
+```bash
+node scripts/write-tabellio-evidence-envelope.mjs \
+  --context tabellio-context.json \
+  --out tabellio-pr-evidence.json
 ```
 
 ## Boundary

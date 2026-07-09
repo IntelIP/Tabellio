@@ -9,6 +9,11 @@ on:
         required: false
         default: tabellio-pr-evidence.json
         type: string
+      context_path:
+        description: Path to the native Git context packet.
+        required: false
+        default: tabellio-context.json
+        type: string
       validation_command:
         description: Command to run before writing evidence.
         required: false
@@ -24,6 +29,11 @@ on:
         description: Path to the evidence envelope.
         required: false
         default: tabellio-pr-evidence.json
+        type: string
+      context_path:
+        description: Path to the native Git context packet.
+        required: false
+        default: tabellio-context.json
         type: string
       validation_command:
         description: Command to run before writing evidence.
@@ -71,6 +81,8 @@ jobs:
             echo "path=.tabellio/toolkit" >> "$GITHUB_OUTPUT"
             echo "ref=$TOOLKIT_REF" >> "$GITHUB_OUTPUT"
           elif [ -f scripts/write-tabellio-evidence-envelope.mjs ] && \
+            [ -f scripts/capture-tabellio-context.mjs ] && \
+            [ -f scripts/check-tabellio-context.mjs ] && \
             [ -f scripts/check-tabellio-evidence-envelope.mjs ] && \
             [ -f scripts/check-tabellio-external-actions.mjs ]; then
             echo "path=." >> "$GITHUB_OUTPUT"
@@ -91,13 +103,39 @@ jobs:
 
       - name: Write evidence envelope
         if: ${{ always() && steps.toolkit.outcome == 'success' }}
-        run: node "${TOOLKIT_PATH}/scripts/write-tabellio-evidence-envelope.mjs" --out "${EVIDENCE_PATH}"
+        shell: bash
+        run: |
+          base_ref="HEAD"
+          if [ -n "${GITHUB_BASE_REF}" ]; then
+            base_ref="origin/${GITHUB_BASE_REF}"
+          fi
+          node "${TOOLKIT_PATH}/scripts/capture-tabellio-context.mjs" \
+            --repo "${GITHUB_WORKSPACE}" \
+            --repo-id "${GITHUB_REPOSITORY}" \
+            --base "${base_ref}" \
+            --head HEAD \
+            --run-id "${GITHUB_RUN_ID}" \
+            --task-summary "Tabellio context captured for ${GITHUB_WORKFLOW}." \
+            --actor "${GITHUB_ACTOR}" \
+            --actor-type ci \
+            --out "${CONTEXT_PATH}"
+          node "${TOOLKIT_PATH}/scripts/write-tabellio-evidence-envelope.mjs" \
+            --context "${CONTEXT_PATH}" \
+            --out "${EVIDENCE_PATH}"
         env:
           TOOLKIT_PATH: ${{ steps.toolkit.outputs.path }}
           EVIDENCE_PATH: ${{ inputs.evidence_path || 'tabellio-pr-evidence.json' }}
+          CONTEXT_PATH: ${{ inputs.context_path || 'tabellio-context.json' }}
           TABELLIO_VALIDATION_COMMAND: ${{ inputs.validation_command || '' }}
           TABELLIO_VALIDATION_STATUS: ${{ steps.validation.outcome || 'skipped' }}
           TABELLIO_WRITER_COMMAND: node ${{ steps.toolkit.outputs.path }}/scripts/write-tabellio-evidence-envelope.mjs
+
+      - name: Validate native Git context
+        if: ${{ always() && steps.toolkit.outcome == 'success' }}
+        run: node "${TOOLKIT_PATH}/scripts/check-tabellio-context.mjs" --context "${CONTEXT_PATH}"
+        env:
+          TOOLKIT_PATH: ${{ steps.toolkit.outputs.path }}
+          CONTEXT_PATH: ${{ inputs.context_path || 'tabellio-context.json' }}
 
       - name: Validate evidence envelope
         if: ${{ always() && steps.toolkit.outcome == 'success' }}
@@ -118,4 +156,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tabellio-pr-evidence
-          path: ${{ inputs.evidence_path || 'tabellio-pr-evidence.json' }}
+          path: |
+            ${{ inputs.evidence_path || 'tabellio-pr-evidence.json' }}
+            ${{ inputs.context_path || 'tabellio-context.json' }}

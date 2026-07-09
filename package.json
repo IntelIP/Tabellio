@@ -1,7 +1,7 @@
 {
   "name": "@intelip/tabellio",
   "version": "0.1.0",
-  "description": "Tabellio: evidence-backed pull request governance for agentic development.",
+  "description": "Tabellio: provider-neutral Git context and evidence for agentic development.",
   "type": "module",
   "license": "Apache-2.0",
   "author": "IntelIP",
@@ -33,11 +33,15 @@
     "docs"
   ],
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "tabellio:context:capture": "node scripts/capture-tabellio-context.mjs --out tabellio-context.json",
+    "tabellio:context:check": "node scripts/check-tabellio-context.mjs --context tabellio-context.json",
+    "tabellio:context:example:check": "node scripts/check-tabellio-context.mjs --context examples/tabellio-context/minimal-context.json",
     "tabellio:evidence:example:check": "node scripts/check-tabellio-evidence-envelope.mjs --evidence examples/tabellio-evidence/minimal-evidence.json",
     "tabellio:evidence:write": "node scripts/write-tabellio-evidence-envelope.mjs --out tabellio-pr-evidence.json",
     "tabellio:evidence:check": "node scripts/check-tabellio-evidence-envelope.mjs --evidence tabellio-pr-evidence.json",
     "tabellio:external-actions:check": "node scripts/check-tabellio-external-actions.mjs --evidence tabellio-pr-evidence.json",
-    "check": "npm run tabellio:evidence:example:check && node scripts/check-tabellio-external-actions.mjs --evidence examples/tabellio-evidence/minimal-evidence.json"
+    "check": "npm test && npm run tabellio:context:example:check && npm run tabellio:evidence:example:check && node scripts/check-tabellio-external-actions.mjs --evidence examples/tabellio-evidence/minimal-evidence.json"
   },
   "engines": {
     "node": ">=20"
@@ -45,6 +49,9 @@
   "keywords": [
     "agentic",
     "git",
+    "native-git",
+    "bare-repository",
+    "worktree",
     "pull-request",
     "evidence",
     "provenance",
@@ -58,7 +65,6 @@
     "stacked-pr",
     "graphite",
     "entire",
-    "code-storage",
     "codex"
   ]
 }

@@ -68,14 +68,24 @@ function validatePolicy(value) {
     if (entry.requiresExplicitApproval !== true) {
       blockers.push(`${path}.requiresExplicitApproval must be true.`);
     }
+    if (typeof entry.approved !== "boolean") {
+      blockers.push(`${path}.approved must be a boolean.`);
+    }
+    if (typeof entry.attempted !== "boolean") {
+      blockers.push(`${path}.attempted must be a boolean.`);
+    }
     if (entry.attempted === true && entry.approved !== true) {
       blockers.push(`${entry.id} attempted without explicit approval.`);
     }
     if (!Array.isArray(entry.expectedSideEffects)) {
       blockers.push(`${path}.expectedSideEffects must be an array.`);
+    } else if (entry.expectedSideEffects.some((sideEffect) => typeof sideEffect !== "string")) {
+      blockers.push(`${path}.expectedSideEffects must contain only strings.`);
     }
     if (!Array.isArray(entry.forbiddenSideEffects) || entry.forbiddenSideEffects.length === 0) {
       blockers.push(`${path}.forbiddenSideEffects must be a non-empty array.`);
+    } else if (entry.forbiddenSideEffects.some((sideEffect) => typeof sideEffect !== "string")) {
+      blockers.push(`${path}.forbiddenSideEffects must contain only strings.`);
     }
     if (typeof entry.verificationCommand !== "string" || entry.verificationCommand.trim() === "") {
       blockers.push(`${path}.verificationCommand must be a non-empty string.`);
