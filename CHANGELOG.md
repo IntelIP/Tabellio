@@ -6,6 +6,8 @@ All notable changes to Tabellio are recorded here.
 
 ### Added
 
+- Mandatory-by-default Entire ledger provider with metadata-only checkpoint export and context binding.
+- Provider-neutral `tabellio-ledger/v0.1` schema, CLI, validator, example, and tests.
 - Read-only git-spice stack adapter with provider-neutral `tabellio-stack/v0.1` snapshots.
 - Stack snapshot schema, validator, CLI, example, and adapter tests.
 - Local agent-run CLI with start, checkpoint, finish, status, and safe promotion commands.

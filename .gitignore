@@ -3,6 +3,8 @@ node_modules/
 agentic-pr-evidence.json
 tabellio-pr-evidence.json
 tabellio-context.json
+tabellio-stack.json
+tabellio-ledger.json
 .DS_Store
 .env
 .env.*

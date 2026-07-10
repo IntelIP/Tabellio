@@ -11,7 +11,7 @@ The main idea: agentic Git should be built around more than a patch. It should p
 | Work request | Issue, ticket, chat request, or manual prompt | Defines why the change exists | Captured as `taskSource` |
 | Coding runtime | [OpenAI Codex](https://openai.com/codex/) or another coding agent | Produces the branch, diff, and validation attempts | Captured as `actor`, `agentRuntime`, and `commandsRun` |
 | Git substrate | Standard Git CLI, bare repositories, and worktrees | Stores repositories, branches, commits, patches, and agent-created code state | Implemented by `NativeGitStore` |
-| Checkpoint ledger | [Entire Checkpoints](https://entire.io/) and [Entire CLI](https://github.com/entireio/cli) | Links commits to agent sessions, prompts, transcript context, token usage, and attribution | Referenced as an artifact or runtime tool, not required by core |
+| Checkpoint ledger | [Entire Checkpoints](https://entire.io/) and [Entire CLI](https://github.com/entireio/cli) | Links commits to agent sessions, prompts, transcript context, token usage, and attribution | Required default through `EntireLedgerProvider`; metadata normalized as `tabellio-ledger/v0.1` |
 | Evidence gate | Tabellio | Writes and validates the PR evidence envelope and external-action policy | Core product surface |
 | Stacked review | [git-spice](https://abhinav.github.io/git-spice/) | Keeps dependent change requests small, ordered, reviewable, and resubmittable across Forgejo, Gitea, GitLab, Bitbucket, or GitHub | Read through `GitSpiceStackManager` into `tabellio-stack/v0.1` |
 | Forge and CI | Forgejo, Gitea, GitLab, Bitbucket, GitHub, or another Git remote | Optionally hosts review, checks, artifacts, and merge state | Adapter boundary; not required by native core |
@@ -25,7 +25,7 @@ The main idea: agentic Git should be built around more than a patch. It should p
 | [git-spice](https://abhinav.github.io/git-spice/) | `git-spice` | Offline-first stacked branch and change-request workflow with forge-specific adapters |
 | [OpenAI Codex](https://openai.com/codex/) | `codex` | Coding and review agent used to produce or inspect changes |
 
-The git-spice adapter is optional at runtime. Native context capture still calls only local Node.js and Git processes.
+Entire is required by default for context capture. Legacy Git-note capture remains an explicit migration mode. All ledger reads stay local through the installed Entire CLI.
 
 ## Control-Plane Shape
 
@@ -33,7 +33,7 @@ The git-spice adapter is optional at runtime. Native context capture still calls
 task source
   -> coding agent run
   -> isolated Git worktree
-  -> commits and Git-note checkpoints
+  -> commits and Entire checkpoints
   -> immutable context packet
   -> read-only merge preview
   -> evidence envelope
@@ -60,7 +60,8 @@ Included:
 - explicit fast-forward compare-and-swap promotion
 - native Git repository provider
 - contained per-run worktrees
-- Git-note checkpoint reading
+- Entire checkpoint metadata ingestion
+- legacy Git-note checkpoint reading
 - deterministic merge preview
 - compare-and-swap ref updates
 - integrity-protected context packet
@@ -74,7 +75,7 @@ Included:
 Not included yet:
 
 - remote repository transport or hosting service
-- Entire checkpoint ingestion
+- transcript indexing or storage outside Entire
 - remote git-spice submission, review mutation, and stack merge
 - Codex review automation
 - signed evidence
@@ -85,7 +86,7 @@ Not included yet:
 | Integration | Evidence Field |
 | --- | --- |
 | Forge repository or branch id | adapter metadata outside the provider-neutral core |
-| Entire checkpoint id | `artifacts[]`, future `checkpoints[]` |
+| Entire checkpoint id | `tabellio-ledger/v0.1` and context `checkpoints[]` |
 | git-spice branch parent or change-request id | `tabellio-stack/v0.1` snapshot |
 | Codex review result | `checks[]` and `artifacts[]` |
 | Plane or ticket system item | `taskSource.url` |
@@ -97,3 +98,11 @@ Tabellio invokes the installed `git-spice` executable with prompts and remote st
 Tabellio does not read or modify git-spice's internal `refs/spice/data` layout. Remote submission and merge remain outside this read-only adapter because they push branches and mutate forge state.
 
 git-spice is GPL-3.0-or-later and is not bundled or linked into the Apache-2.0 Tabellio package. Operators install the separate executable. Modifications or redistribution of git-spice must follow its license.
+
+## Entire Boundary
+
+Tabellio calls `entire checkpoint explain --json` and stores normalized metadata only. Transcript bytes never enter context or ledger snapshots. Missing checkpoints fail default context capture; `--ledger git-note` exists only for migration.
+
+Entire remains the source of truth for transcripts, rewind, and resume. Tabellio stores checkpoint IDs, commit bindings, summaries, token totals, and integrity digests for orchestration and review.
+
+This repository disables automatic checkpoint pushes until a private Forgejo destination exists. Commit trailers remain shareable; transcript-bearing checkpoint data stays local during migration.

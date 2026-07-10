@@ -16,6 +16,8 @@ export async function captureContext({
   taskSummary,
   createdAt,
   checkpointCommits = [],
+  ledgerProvider = null,
+  requireLedger = false,
 }) {
   const [baseCommit, headCommit, ...frozenCheckpointCommits] = await Promise.all([
     store.resolveRef(baseRevision),
@@ -26,16 +28,32 @@ export async function captureContext({
   if (mergePreview.baseCommit !== baseCommit || mergePreview.headCommit !== headCommit) {
     throw new Error("Merge preview did not use the frozen base and head commits.");
   }
-  const noteCommits = [...new Set([...frozenCheckpointCommits, headCommit])];
-  const [diff, notes] = await Promise.all([
-    store.getDiff(mergePreview.mergeBase, headCommit),
-    Promise.all(noteCommits.map(async (commit) => ({
-      commit,
-      note: await store.readNote(commit, { notesRef }),
-    }))),
-  ]);
+  const diff = await store.getDiff(mergePreview.mergeBase, headCommit);
   if (diff.baseCommit !== mergePreview.mergeBase || diff.headCommit !== headCommit) {
     throw new Error("Change set did not use merge-base and the frozen head commit.");
+  }
+
+  let checkpoints;
+  if (ledgerProvider) {
+    const ledger = await ledgerProvider.snapshot({
+      repositoryId,
+      baseRevision: mergePreview.mergeBase,
+      headRevision: headCommit,
+      capturedAt: createdAt,
+    });
+    checkpoints = ledgerProvider.contextReferences(ledger);
+  } else {
+    const noteCommits = [...new Set([...frozenCheckpointCommits, headCommit])];
+    const notes = await Promise.all(noteCommits.map(async (commit) => ({
+      commit,
+      note: await store.readNote(commit, { notesRef }),
+    })));
+    checkpoints = notes
+      .filter(({ note }) => note !== null)
+      .map(({ note, commit }) => checkpointFromNote({ note, notesRef, commit }));
+  }
+  if (requireLedger && checkpoints.length === 0) {
+    throw new Error("Entire checkpoint required: no checkpoint trailers were found between merge-base and head.");
   }
 
   return createContextPacket({
@@ -56,9 +74,7 @@ export async function captureContext({
     changeSet: {
       files: diff.files,
     },
-    checkpoints: notes
-      .filter(({ note }) => note !== null)
-      .map(({ note, commit }) => checkpointFromNote({ note, notesRef, commit })),
+    checkpoints,
     mergePreview: {
       clean: mergePreview.clean,
       tree: mergePreview.tree,

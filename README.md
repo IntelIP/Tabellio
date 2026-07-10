@@ -65,12 +65,12 @@ AI-assisted pull requests should not depend on reviewer trust alone. Tabellio gi
 | Code scanning output | [SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) | Carries Scorecard output into GitHub code scanning |
 | Review surface | [GitHub Pull Requests](https://github.com/features/code-review) | Shows checks, artifacts, and reviewer context |
 | Stacked review | [git-spice](https://abhinav.github.io/git-spice/) | Host-agnostic stack engine for small dependent change requests |
-| Checkpoint ledger | [Entire](https://entire.io/) and [Entire CLI](https://github.com/entireio/cli) | Intended companion for agent session and checkpoint context |
+| Checkpoint ledger | [Entire](https://entire.io/) and [Entire CLI](https://github.com/entireio/cli) | Required default for agent session and checkpoint context |
 | Git substrate | Standard Git CLI, bare repositories, and worktrees | Stores repositories, branches, commits, patches, and agent-created code state |
 | Agent review | [OpenAI Codex](https://openai.com/codex/) | Optional review layer when configured |
 | Prior art | [SLSA](https://slsa.dev/) and [in-toto](https://in-toto.io/) | Inspiration for provenance and supply-chain evidence, without a compliance claim |
 
-GitHub remains an optional storage, CI, and review surface. Entire, git-spice, and Codex remain separate integration layers.
+GitHub remains an optional storage, CI, and review surface. Entire is the default ledger; git-spice and Codex remain separate integration layers.
 
 ## Core Files
 
@@ -81,6 +81,7 @@ GitHub remains an optional storage, CI, and review surface. Entire, git-spice, a
 | `schemas/` | Evidence and external-action JSON schemas |
 | `scripts/providers/native-git-store.mjs` | Standard Git storage provider |
 | `scripts/providers/git-spice-stack-manager.mjs` | Read-only git-spice stack adapter |
+| `scripts/providers/entire-ledger-provider.mjs` | Metadata-only Entire checkpoint adapter |
 | `scripts/lib/` | Git process, repository contract, worktree, and context primitives |
 | `scripts/` | Dependency-free capture, writer, and validators |
 | `examples/` | Minimal valid evidence fixture and consumer workflow example |
@@ -142,6 +143,8 @@ node scripts/write-tabellio-evidence-envelope.mjs \
   --out tabellio-pr-evidence.json
 ```
 
+Context capture requires an Entire checkpoint by default. For legacy Git-note repositories during migration, pass `--ledger git-note` explicitly.
+
 Run the local agent lifecycle:
 
 ```bash
@@ -167,6 +170,8 @@ npm run tabellio:run -- status --run-id run-42
 npm run tabellio:run:example:check
 npm run tabellio:stack -- --repo . --repo-id IntelIP/Tabellio --out tabellio-stack.json
 npm run tabellio:stack:check
+npm run tabellio:ledger -- --repo . --repo-id IntelIP/Tabellio --base main --head HEAD --out tabellio-ledger.json
+npm run tabellio:ledger:check
 npm run tabellio:context:capture
 npm run tabellio:context:check
 npm run tabellio:evidence:write

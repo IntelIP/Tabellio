@@ -8,8 +8,17 @@ Tabellio captures provider-neutral Git context and can attach a machine-readable
 - Node.js 20 or later
 - Git 2.38 or later with `merge-tree --write-tree`
 - git-spice 0.18 or later for optional stack snapshots; Forgejo support requires 0.30 or later
+- Entire CLI 0.7.7 or later for mandatory checkpoint metadata export
 
 GitHub and GitHub Actions are required only for the optional reusable workflow below.
+
+Enable Entire for Codex before creating agent commits:
+
+```bash
+entire enable --agent codex --project
+```
+
+Every agent change range must contain at least one `Entire-Checkpoint` commit trailer. Context capture fails closed when no checkpoint exists. Use `--ledger git-note` only while migrating an older repository.
 
 ## Capture A Stack
 
@@ -71,6 +80,7 @@ From this repository:
 ```bash
 npm run check
 node scripts/check-tabellio-stack.mjs --stack examples/tabellio-stack/minimal-stack.json
+node scripts/check-tabellio-ledger.mjs --ledger examples/tabellio-ledger/minimal-ledger.json
 node scripts/capture-tabellio-context.mjs --repo . --repo-id example/repository --base main --head HEAD --out /tmp/tabellio-context.json
 node scripts/check-tabellio-context.mjs --context /tmp/tabellio-context.json
 node scripts/write-tabellio-evidence-envelope.mjs --context /tmp/tabellio-context.json --out /tmp/tabellio-pr-evidence.json

@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tabellio:schema:ledger-snapshot:v0.1",
+  "title": "Tabellio Entire Ledger Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "repository", "provider", "capturedAt", "range", "checkpoints"],
+  "properties": {
+    "schemaVersion": { "const": "tabellio-ledger/v0.1" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": { "id": { "type": "string", "minLength": 1 } }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "const": "entire" },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseCommit", "headCommit"],
+      "properties": {
+        "baseCommit": { "$ref": "#/$defs/oid" },
+        "headCommit": { "$ref": "#/$defs/oid" }
+      }
+    },
+    "checkpoints": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/checkpoint" }
+    }
+  },
+  "$defs": {
+    "oid": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "commits", "branch", "filesTouched", "hasReview", "hasInvestigation",
+        "sessionCount", "sessions", "partial", "digest", "summary"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[0-9a-f]{12}$" },
+        "commits": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/oid" }
+        },
+        "branch": { "type": ["string", "null"], "minLength": 1 },
+        "filesTouched": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "hasReview": { "type": "boolean" },
+        "hasInvestigation": { "type": "boolean" },
+        "sessionCount": { "type": "integer", "minimum": 0 },
+        "sessions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/session" }
+        },
+        "partial": { "type": "boolean" },
+        "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "summary": { "type": ["string", "null"], "minLength": 1, "maxLength": 500 }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "id", "agent", "model", "kind", "createdAt", "filesTouched", "tokenUsage", "summary", "error"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "id": { "type": ["string", "null"], "minLength": 1 },
+        "agent": { "type": ["string", "null"], "minLength": 1 },
+        "model": { "type": ["string", "null"], "minLength": 1 },
+        "kind": { "type": ["string", "null"], "minLength": 1 },
+        "createdAt": { "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+        "filesTouched": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "tokenUsage": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["input", "output", "cacheRead", "cacheCreation"],
+              "properties": {
+                "input": { "type": "integer", "minimum": 0 },
+                "output": { "type": "integer", "minimum": 0 },
+                "cacheRead": { "type": "integer", "minimum": 0 },
+                "cacheCreation": { "type": "integer", "minimum": 0 }
+              }
+            }
+          ]
+        },
+        "summary": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["intent", "outcome"],
+              "properties": {
+                "intent": { "type": ["string", "null"], "minLength": 1 },
+                "outcome": { "type": ["string", "null"], "minLength": 1 }
+              }
+            }
+          ]
+        },
+        "error": { "type": ["string", "null"], "minLength": 1 }
+      }
+    }
+  }
+}

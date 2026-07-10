@@ -45,7 +45,7 @@ agent or CLI
 
 1. Resolve base and head names once to immutable commits.
 2. Compute the agent changed-file set from merge-base to head.
-3. Read an optional checkpoint note from `refs/notes/tabellio/context`.
+3. Read Entire checkpoint metadata for commits in the change range; legacy mode can read `refs/notes/tabellio/context`.
 4. Preview the merge without mutating a ref or worktree.
 5. Write canonical `tabellio-context/v0.1` JSON with integrity digest.
 6. Validate the context packet.
