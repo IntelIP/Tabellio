@@ -83,10 +83,16 @@
         "additionalProperties": false,
         "required": ["ref", "commit", "digest"],
         "properties": {
+          "provider": { "const": "entire" },
+          "id": { "type": "string", "pattern": "^[0-9a-f]{12}$" },
           "ref": { "type": "string", "minLength": 1 },
           "commit": { "$ref": "#/$defs/oid" },
           "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
           "summary": { "type": "string", "minLength": 1, "maxLength": 500 }
+        },
+        "dependentRequired": {
+          "provider": ["id"],
+          "id": ["provider"]
         }
       }
     },

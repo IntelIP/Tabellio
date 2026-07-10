@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 
 import { captureContext } from "./lib/capture-context.mjs";
 import { repositoryIdentity } from "./lib/repository-identity.mjs";
+import { EntireLedgerProvider } from "./providers/entire-ledger-provider.mjs";
 import { NativeGitStore } from "./providers/native-git-store.mjs";
 
 const args = parseArgs(process.argv.slice(2));
@@ -13,6 +14,13 @@ const baseRevision = args.base ?? "main";
 const headRevision = args.head ?? "HEAD";
 const notesRef = args.notesRef ?? "refs/notes/tabellio/context";
 const store = await NativeGitStore.open(repoPath);
+const ledgerMode = args.ledger ?? "entire";
+if (!["entire", "git-note"].includes(ledgerMode)) throw new Error("--ledger must be entire or git-note.");
+const ledgerProvider = ledgerMode === "entire"
+  ? await EntireLedgerProvider.open(store.repoPath, {
+    binary: args.entireBinary ?? process.env.TABELLIO_ENTIRE_BIN ?? "entire",
+  })
+  : null;
 
 const packet = await captureContext({
   store,
@@ -28,6 +36,8 @@ const packet = await captureContext({
     id: args.actor ?? process.env.USER ?? "local-agent",
   },
   taskSummary: args.taskSummary ?? "Context captured from native Git state.",
+  ledgerProvider,
+  requireLedger: ledgerMode === "entire" && !args.allowMissingCheckpoint,
 });
 
 await mkdir(dirname(outPath), { recursive: true });
@@ -49,8 +59,14 @@ function parseArgs(argv) {
     ["--actor", "actor"],
     ["--actor-type", "actorType"],
     ["--notes-ref", "notesRef"],
+    ["--ledger", "ledger"],
+    ["--entire-binary", "entireBinary"],
   ]);
   for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--allow-missing-checkpoint") {
+      parsed.allowMissingCheckpoint = true;
+      continue;
+    }
     const key = aliases.get(argv[index]);
     if (!key) throw new Error(`Unknown argument: ${argv[index]}`);
     const value = argv[++index];

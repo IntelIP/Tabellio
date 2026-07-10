@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "tabellio-ledger/v0.1",
+  "repository": {
+    "id": "example/tabellio"
+  },
+  "provider": {
+    "id": "entire",
+    "version": "0.7.7"
+  },
+  "capturedAt": "2026-07-10T12:00:00.000Z",
+  "range": {
+    "baseCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "headCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "checkpoints": [
+    {
+      "id": "abcdef123456",
+      "commits": ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+      "branch": "agent/example",
+      "filesTouched": ["src/example.mjs"],
+      "hasReview": false,
+      "hasInvestigation": false,
+      "sessionCount": 1,
+      "sessions": [
+        {
+          "index": 0,
+          "id": "session-example",
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "kind": "work",
+          "createdAt": "2026-07-10T11:30:00.000Z",
+          "filesTouched": ["src/example.mjs"],
+          "tokenUsage": {
+            "input": 100,
+            "output": 40,
+            "cacheRead": 20,
+            "cacheCreation": 0
+          },
+          "summary": {
+            "intent": "Add provider-neutral checkpoint capture.",
+            "outcome": "Checkpoint metadata captured successfully."
+          },
+          "error": null
+        }
+      ],
+      "partial": false,
+      "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "summary": "Checkpoint metadata captured successfully."
+    }
+  ]
+}

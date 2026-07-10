@@ -102,7 +102,16 @@ export function validateContextPacket(value, { verifyIntegrity = true } = {}) {
   if (!Array.isArray(value.checkpoints)) throw new Error("checkpoints must be an array.");
   value.checkpoints.forEach((checkpoint, index) => {
     requireObject(checkpoint, `checkpoints[${index}]`);
-    exactKeys(checkpoint, ["ref", "commit", "digest", "summary"], `checkpoints[${index}]`);
+    exactKeys(checkpoint, ["provider", "id", "ref", "commit", "digest", "summary"], `checkpoints[${index}]`);
+    if ((checkpoint.provider === undefined) !== (checkpoint.id === undefined)) {
+      throw new Error(`checkpoints[${index}].provider and id must be supplied together.`);
+    }
+    if (checkpoint.provider !== undefined) {
+      oneOf(checkpoint.provider, ["entire"], `checkpoints[${index}].provider`);
+      if (typeof checkpoint.id !== "string" || !/^[0-9a-f]{12}$/.test(checkpoint.id)) {
+        throw new Error(`checkpoints[${index}].id must be a 12-character hexadecimal Entire checkpoint ID.`);
+      }
+    }
     requiredString(checkpoint.ref, `checkpoints[${index}].ref`);
     oid(checkpoint.commit, `checkpoints[${index}].commit`);
     if (checkpoint.commit.length !== repositoryOidLength) {

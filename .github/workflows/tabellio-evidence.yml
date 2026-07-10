@@ -113,6 +113,7 @@ jobs:
         shell: bash
         run: |
           node "${TOOLKIT_PATH}/scripts/capture-tabellio-context.mjs" \
+            --ledger git-note \
             --repo "${GITHUB_WORKSPACE}" \
             --repo-id "${GITHUB_REPOSITORY}" \
             --base "${BASE_SHA}" \

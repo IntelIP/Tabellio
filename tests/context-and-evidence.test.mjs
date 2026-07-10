@@ -116,6 +116,7 @@ test("capture CLI hashes Windows local origin paths", async (t) => {
   });
 
   await runNode("scripts/capture-tabellio-context.mjs", [
+    "--ledger", "git-note",
     "--repo", fixture.bare,
     "--base", "refs/heads/main",
     "--head", "refs/heads/feature",
@@ -186,6 +187,7 @@ test("capture CLI binds native Git context into evidence", async (t) => {
   const evidencePath = `${fixture.root}/evidence.json`;
 
   await runNode("scripts/capture-tabellio-context.mjs", [
+    "--ledger", "git-note",
     "--repo", fixture.bare,
     "--repo-id", "example/native-repository",
     "--base", "refs/heads/main",
