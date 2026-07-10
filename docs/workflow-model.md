@@ -1,6 +1,6 @@
 # Tabellio Workflow Model
 
-Tabellio turns an agentic coding run into a reviewable pull request packet.
+Tabellio turns an agentic coding run into a provider-neutral Git context packet and, when wanted, a reviewable pull request packet.
 
 ## Core Objects
 
@@ -8,6 +8,9 @@ Tabellio turns an agentic coding run into a reviewable pull request packet.
 | --- | --- |
 | Task source | Why the work started: issue, chat request, ticket, prompt, or manual request |
 | Runtime | Human, CI process, coding agent, or mixed toolchain that produced the change |
+| Repository store | Contract for commit resolution, diffs, worktrees, notes, merge previews, and safe ref updates |
+| Workspace | Isolated Git worktree assigned to one agent run |
+| Context packet | Integrity-protected binding between task, actor, exact commits, changed files, checkpoints, and merge preview |
 | Evidence envelope | JSON record of Git state, changed files, commands, checks, approvals, side-effect policy, and artifacts |
 | External action policy | Default-deny policy for deploys, migrations, infra, DNS, billing, secrets, provider reads, and destructive actions |
 | Pull request | Human review surface for the diff plus evidence summary |
@@ -18,8 +21,8 @@ Tabellio turns an agentic coding run into a reviewable pull request packet.
 
 | Layer | Example Tooling | Role |
 | --- | --- | --- |
-| Git substrate | GitHub, Code Storage | Stores repositories, branches, commits, and patch state |
-| Session ledger | Entire | Preserves checkpoint and agent-run context for later review |
+| Git substrate | Standard Git CLI and bare repositories | Stores repositories, branches, commits, and patch state |
+| Session ledger | Git notes; Entire optionally | Preserves checkpoint and agent-run context for later review |
 | Evidence gate | Tabellio | Validates commands, checks, changed files, approvals, and side-effect policy |
 | Stacked review | Graphite | Keeps related PRs small, ordered, and reviewable |
 | Agent review | Codex review | Adds optional diff and evidence review by an agent |
@@ -28,13 +31,17 @@ Tabellio turns an agentic coding run into a reviewable pull request packet.
 
 ```text
 task
-  -> branch
-  -> small change
+  -> resolve immutable base commit
+  -> isolated worktree and agent branch
+  -> small commits and optional Git-note checkpoints
   -> deterministic checks
+  -> context packet
+  -> read-only merge preview
   -> evidence envelope
   -> evidence validation
   -> external-action check
-  -> pull request
+  -> optional compare-and-swap target ref update
+  -> optional pull request
   -> review
   -> merge
 ```
@@ -50,6 +57,8 @@ Each PR should expose:
 - required approvals
 - external actions attempted or blocked
 - evidence artifact path
+
+The context packet is usable without a pull request. A forge is a review and distribution adapter, not Tabellio's source of truth.
 
 Evidence is not a claim that the work is correct. Evidence is the record reviewers inspect before trusting the work.
 
@@ -105,4 +114,4 @@ Future versions can add:
 - OpenTelemetry spans
 - model/tool eval suites
 - Graphite stack metadata
-- GitHub merge queue metadata
+- forge-specific merge queue metadata

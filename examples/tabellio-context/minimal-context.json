@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "tabellio-context/v0.1",
+  "runId": "local-context-example-001",
+  "repository": {
+    "id": "example/tabellio",
+    "storage": "native-git"
+  },
+  "actor": {
+    "type": "agent",
+    "id": "example-agent"
+  },
+  "task": {
+    "summary": "Demonstrate a provider-neutral Tabellio context packet."
+  },
+  "refs": {
+    "base": {
+      "name": "refs/heads/main",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "head": {
+      "name": "refs/heads/agent/example",
+      "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "mergeBase": {
+      "name": "merge-base",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "changeSet": {
+    "files": [
+      {
+        "status": "M",
+        "path": "src/example.mjs"
+      }
+    ]
+  },
+  "checkpoints": [],
+  "mergePreview": {
+    "clean": true,
+    "tree": "cccccccccccccccccccccccccccccccccccccccc",
+    "conflictFiles": []
+  },
+  "createdAt": "2026-07-09T00:00:00.000Z",
+  "integrity": {
+    "algorithm": "sha256",
+    "scope": "canonical-json-without-integrity",
+    "digest": "a39aec4befed8f2e992aa6c2e2d55dce689d913ba99f4a3e0f68e52545d46a2d"
+  }
+}

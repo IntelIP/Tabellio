@@ -1,9 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { createHash } from "node:crypto";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+
+import { canonicalJson, validateContextPacket } from "./lib/context-packet.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 const evidencePath = args.evidence ?? "tabellio-pr-evidence.json";
 const root = process.cwd();
+const absoluteEvidencePath = isAbsolute(evidencePath) ? evidencePath : join(root, evidencePath);
+const evidenceRoot = dirname(absoluteEvidencePath);
 const requiredActionClasses = [
   "deployment",
   "database-migration",
@@ -70,8 +75,9 @@ function validateEvidence(value, localBlockers, localWarnings) {
   validateCommands(value.commandsRun, localBlockers);
   validateChecks(value.checks, localBlockers);
   validateApprovals(value.approvals, localBlockers);
-  validateArtifacts(value.artifacts, localBlockers);
+  validateArtifacts(value.artifacts, value, localBlockers);
   validateExternalActionPolicy(value.externalActionPolicy, localBlockers, localWarnings);
+  if (value.context !== undefined) validateContextBinding(value.context, value, localBlockers);
 }
 
 function validateGit(value, localBlockers) {
@@ -160,7 +166,7 @@ function validateApprovals(value, localBlockers) {
   });
 }
 
-function validateArtifacts(value, localBlockers) {
+function validateArtifacts(value, envelope, localBlockers) {
   if (!Array.isArray(value)) {
     localBlockers.push("artifacts must be an array.");
     return;
@@ -173,7 +179,64 @@ function validateArtifacts(value, localBlockers) {
     }
     requiredString(artifact.name, `${path}.name`, localBlockers);
     requiredString(artifact.path, `${path}.path`, localBlockers);
+    if (artifact.sha256 !== undefined && !/^[0-9a-f]{64}$/.test(artifact.sha256)) {
+      localBlockers.push(`${path}.sha256 must be a lowercase SHA-256 digest.`);
+    }
+    if (artifact.hashScope !== undefined) {
+      oneOf(artifact.hashScope, ["file-bytes", "canonical-json-without-this-artifact-sha256"], `${path}.hashScope`, localBlockers);
+    }
+    if (artifact.hashScope === "canonical-json-without-this-artifact-sha256") {
+      if (!artifact.sha256) {
+        localBlockers.push(`${path}.sha256 is required for canonical evidence integrity.`);
+      } else {
+        const copy = structuredClone(envelope);
+        delete copy.artifacts[index].sha256;
+        const expected = createHash("sha256").update(canonicalJson(copy)).digest("hex");
+        if (artifact.sha256 !== expected) localBlockers.push(`${path}.sha256 does not match the evidence envelope.`);
+      }
+    }
+    if (artifact.hashScope === "file-bytes") {
+      if (!artifact.sha256) {
+        localBlockers.push(`${path}.sha256 is required for file-byte integrity.`);
+      } else {
+        try {
+          const absolute = isAbsolute(artifact.path) ? artifact.path : resolve(evidenceRoot, artifact.path);
+          const expected = createHash("sha256").update(readFileSync(absolute)).digest("hex");
+          if (artifact.sha256 !== expected) localBlockers.push(`${path}.sha256 does not match the artifact bytes.`);
+        } catch (error) {
+          localBlockers.push(`${path} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
   });
+}
+
+function validateContextBinding(value, envelope, localBlockers) {
+  if (!isObject(value)) {
+    localBlockers.push("context must be an object.");
+    return;
+  }
+  stringEquals(value.schemaVersion, "tabellio-context/v0.1", "context.schemaVersion", localBlockers);
+  requiredString(value.packetPath, "context.packetPath", localBlockers);
+  if (!/^[0-9a-f]{64}$/.test(value.digest ?? "")) localBlockers.push("context.digest must be a SHA-256 digest.");
+  for (const field of ["baseCommit", "headCommit", "mergeBaseCommit"]) {
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value[field] ?? "")) localBlockers.push(`context.${field} must be a Git object ID.`);
+  }
+  if (typeof value.mergeClean !== "boolean") localBlockers.push("context.mergeClean must be a boolean.");
+  if (value.headCommit !== envelope.git?.sha) localBlockers.push("context.headCommit must match git.sha.");
+  try {
+    const packet = readJsonFromEvidence(value.packetPath);
+    validateContextPacket(packet);
+    if (packet.integrity.digest !== value.digest) localBlockers.push("context.digest must match the context packet.");
+    if (packet.refs.base.commit !== value.baseCommit) localBlockers.push("context.baseCommit must match the context packet.");
+    if (packet.refs.head.commit !== value.headCommit) localBlockers.push("context.headCommit must match the context packet.");
+    if (packet.refs.mergeBase.commit !== value.mergeBaseCommit) localBlockers.push("context.mergeBaseCommit must match the context packet.");
+    if (packet.mergePreview.clean !== value.mergeClean) localBlockers.push("context.mergeClean must match the context packet.");
+    if (packet.runId !== envelope.runId) localBlockers.push("context packet runId must match the evidence envelope.");
+    if (packet.repository.id !== envelope.repo) localBlockers.push("context packet repository must match the evidence envelope.");
+  } catch (error) {
+    localBlockers.push(`context packet is invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function validateExternalActionPolicy(value, localBlockers, localWarnings) {
@@ -199,17 +262,27 @@ function validateExternalActionPolicy(value, localBlockers, localWarnings) {
     if (entry.requiresExplicitApproval !== true) {
       localBlockers.push(`${path}.requiresExplicitApproval must be true.`);
     }
+    if (typeof entry.approved !== "boolean") {
+      localBlockers.push(`${path}.approved must be a boolean.`);
+    }
+    if (typeof entry.attempted !== "boolean") {
+      localBlockers.push(`${path}.attempted must be a boolean.`);
+    }
     if (entry.approved !== true && entry.attempted === true) {
       localBlockers.push(`${path} attempted an external action without approval.`);
     }
-    if (!Array.isArray(entry.expectedSideEffects)) {
-      localBlockers.push(`${path}.expectedSideEffects must be an array.`);
-    }
-    if (!Array.isArray(entry.forbiddenSideEffects)) {
-      localBlockers.push(`${path}.forbiddenSideEffects must be an array.`);
+    validateStringArray(entry.expectedSideEffects, `${path}.expectedSideEffects`, localBlockers);
+    if (!Array.isArray(entry.forbiddenSideEffects) || entry.forbiddenSideEffects.length === 0) {
+      localBlockers.push(`${path}.forbiddenSideEffects must be a non-empty array.`);
+    } else {
+      validateStringArray(entry.forbiddenSideEffects, `${path}.forbiddenSideEffects`, localBlockers);
     }
     requiredString(entry.verificationCommand, `${path}.verificationCommand`, localBlockers);
   });
+
+  if (entriesById.size !== value.actionClasses.length) {
+    localBlockers.push("externalActionPolicy.actionClasses must not contain duplicate ids.");
+  }
 
   for (const actionClass of requiredActionClasses) {
     if (!entriesById.has(actionClass)) {
@@ -255,6 +328,12 @@ function isObject(value) {
 function readJson(relativePath) {
   const absolute = isAbsolute(relativePath) ? relativePath : join(root, relativePath);
   if (!existsSync(absolute)) throw new Error(`${relativePath} is missing.`);
+  return JSON.parse(readFileSync(absolute, "utf8"));
+}
+
+function readJsonFromEvidence(path) {
+  const absolute = isAbsolute(path) ? path : resolve(evidenceRoot, path);
+  if (!existsSync(absolute)) throw new Error(`${path} is missing.`);
   return JSON.parse(readFileSync(absolute, "utf8"));
 }
 

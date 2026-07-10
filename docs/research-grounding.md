@@ -12,7 +12,7 @@ Agentic development should stay Git-native:
 2. Record machine-readable evidence.
 3. Run deterministic checks.
 4. Default-deny external side effects.
-5. Review through normal pull requests.
+5. Review through a forge or another explicit review surface.
 6. Merge only after current checks pass.
 
 The agent is optional. The evidence contract is the product.
@@ -26,7 +26,8 @@ The agent is optional. The evidence contract is the product.
 | Merge safety | [GitHub merge queues](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue) | Validate the final merge state, not just stale local state |
 | OSS repo structure | [Vercel AI SDK](https://github.com/vercel/ai), [Next.js](https://github.com/vercel/next.js), [Vercel CLI](https://github.com/vercel/vercel) | Keep the README short, link docs clearly, and surface contributing, security, and license files |
 | Stacked review | [Graphite](https://graphite.dev/) | Split large agent work into reviewable PRs |
-| Agentic Git substrate | [Code Storage](https://code.storage/) | Treat repositories, branches, commits, patches, and code-like artifacts as machine-addressable product data |
+| Agentic Git substrate | [Git repository layout](https://git-scm.com/docs/gitrepository-layout), [Git worktree](https://git-scm.com/docs/git-worktree), [Git notes](https://git-scm.com/docs/git-notes) | Treat repositories, workspaces, commits, refs, and checkpoint context as machine-addressable product data using standard Git |
+| Concurrent merge safety | [Git merge-tree](https://git-scm.com/docs/git-merge-tree), [Git update-ref](https://git-scm.com/docs/git-update-ref) | Preview merges without a checkout and update refs only when the expected old commit still matches |
 | Agent session ledger | [Entire](https://entire.io/), [Entire glossary](https://docs.entire.io/glossary) | Attach checkpoint and session context to code changes without making the PR body the only audit record |
 | Review-time analysis | [Google Tricorder](https://research.google.com/pubs/archive/43322.pdf), [Google SWE book: static analysis](https://abseil.io/resources/swe-book/html/ch20.html) | Put actionable automated checks in the review path |
 | OSS health | [OpenSSF Scorecard](https://github.com/ossf/scorecard), [Scorecard](https://scorecard.dev/) | Track public repo hygiene without making it a deployment gate |
@@ -39,11 +40,12 @@ The agent is optional. The evidence contract is the product.
 | Repo Primitive | Grounded By | Purpose |
 | --- | --- | --- |
 | Evidence envelope | SLSA, in-toto | Structured audit packet for PRs |
+| Native Git context | Git object IDs, worktrees, notes, merge-tree, update-ref | Bind agent work to immutable commits and reject stale ref updates |
 | External action policy | Security review, deployment controls | Prevent hidden deploys, migrations, secret reads, provider reads, and destructive actions |
 | Evidence workflow | GitHub Actions, reusable workflows | Run evidence checks in CI |
 | PR template | Code review practice | Put evidence summary in front of reviewers |
 | Scorecard workflow | OpenSSF Scorecard | Track public repo health |
-| Tooling stack guide | Code Storage, Entire, Graphite | Tag the workflow ecosystem while keeping vendor APIs outside v0.1.0 core |
+| Tooling stack guide | Standard Git, Entire, Graphite | Keep the core provider-neutral while allowing optional review and ledger adapters |
 
 ## Claims We Can Make
 
@@ -53,6 +55,7 @@ The agent is optional. The evidence contract is the product.
 - Agent-agnostic Git governance
 - Default-deny external action policy
 - CI-validated evidence envelope
+- Provider-neutral native Git context engine
 
 ## Claims We Should Avoid
 
@@ -76,4 +79,4 @@ The agent is optional. The evidence contract is the product.
 
 ## Boundary
 
-Current v0.1.0 is intentionally modest. It is a structured evidence and review workflow, not a formal supply-chain security implementation.
+Current unreleased design remains a structured context, evidence, and review workflow, not a formal supply-chain security implementation or remote Git hosting service.

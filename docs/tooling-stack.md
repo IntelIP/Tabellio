@@ -1,6 +1,6 @@
 # Agentic Tooling Stack
 
-Tabellio sits in a broader agentic Git workflow. It does not replace the forge, the code storage layer, the checkpoint ledger, or stacked PR tooling. It records the evidence packet that makes those layers reviewable.
+Tabellio now owns the minimum Git substrate agents need. It uses standard Git rather than requiring a proprietary code-storage API. A forge can still store repositories and host review.
 
 The main idea: agentic Git should be built around more than a patch. It should preserve the work request, the reason for the change, the runtime that produced it, the commands that ran, the checkpoints that explain it, and the side effects that require approval.
 
@@ -10,35 +10,35 @@ The main idea: agentic Git should be built around more than a patch. It should p
 | --- | --- | --- | --- |
 | Work request | Issue, ticket, chat request, or manual prompt | Defines why the change exists | Captured as `taskSource` |
 | Coding runtime | [OpenAI Codex](https://openai.com/codex/) or another coding agent | Produces the branch, diff, and validation attempts | Captured as `actor`, `agentRuntime`, and `commandsRun` |
-| Git substrate | [GitHub](https://github.com/) today; [Code Storage](https://code.storage/) as machine-first Git infrastructure | Stores repositories, branches, commits, patches, and agent-created code state | Captured as `repo`, `git`, and `changedFiles` |
+| Git substrate | Standard Git CLI, bare repositories, and worktrees | Stores repositories, branches, commits, patches, and agent-created code state | Implemented by `NativeGitStore` |
 | Checkpoint ledger | [Entire Checkpoints](https://entire.io/) and [Entire CLI](https://github.com/entireio/cli) | Links commits to agent sessions, prompts, transcript context, token usage, and attribution | Referenced as an artifact or runtime tool, not required by core |
 | Evidence gate | Tabellio | Writes and validates the PR evidence envelope and external-action policy | Core product surface |
 | Stacked review | [Graphite](https://graphite.dev/) or Graphite-like stacked PR tooling | Keeps dependent PRs small, ordered, reviewable, and resubmittable | Captured through stack metadata in future versions |
-| Forge and CI | [GitHub Pull Requests](https://github.com/features/code-review) and [GitHub Actions](https://github.com/features/actions) | Hosts review, checks, artifacts, and merge state | Current v0.1.0 integration point |
+| Forge and CI | GitHub or another forge | Optionally hosts review, checks, artifacts, and merge state | Adapter boundary; not required by native core |
 | Repo hygiene | [OpenSSF Scorecard](https://securityscorecards.dev/), [SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html), and static checks | Adds public health and automated review signals | Recorded as checks or artifacts |
 
 ## Tool Tags
 
 | Tool | Tag | Why It Matters |
 | --- | --- | --- |
-| [Code Storage](https://code.storage/) | `code-storage` | API-first Git infrastructure for machine-created repositories, branches, commits, and code-like artifacts |
 | [Entire](https://entire.io/) | `entire` | Checkpoint and session ledger for agent-assisted work, with checkpoint metadata stored in Git |
 | [Graphite](https://graphite.dev/) | `graphite` | Stacked PR and code review workflow for keeping agent-produced changes reviewable |
 | [OpenAI Codex](https://openai.com/codex/) | `codex` | Coding and review agent used to produce or inspect changes |
 
-These tags describe the workflow ecosystem. Tabellio v0.1.0 does not call vendor APIs for Code Storage, Entire, Graphite, or Codex.
+These tools remain optional. Native context capture calls only local Node.js and Git processes.
 
 ## Control-Plane Shape
 
 ```text
 task source
   -> coding agent run
-  -> Git substrate branch/change set
-  -> checkpoint ledger
+  -> isolated Git worktree
+  -> commits and Git-note checkpoints
+  -> immutable context packet
+  -> read-only merge preview
   -> evidence envelope
-  -> stacked PR review
-  -> GitHub checks
-  -> explicit merge or release gate
+  -> optional forge review and checks
+  -> explicit compare-and-swap merge or release gate
 ```
 
 The product opportunity is the control plane tying those objects together:
@@ -52,10 +52,16 @@ The product opportunity is the control plane tying those objects together:
 - `MergeGate`: what must pass before merge
 - `ReleaseIntent`: what protected side effects require approval
 
-## Current v0.1.0 Scope
+## Current Unreleased Scope
 
 Included:
 
+- native Git repository provider
+- contained per-run worktrees
+- Git-note checkpoint reading
+- deterministic merge preview
+- compare-and-swap ref updates
+- integrity-protected context packet
 - GitHub Actions evidence workflow
 - evidence JSON envelope
 - default-deny external-action policy
@@ -65,7 +71,7 @@ Included:
 
 Not included yet:
 
-- Code Storage API integration
+- remote repository transport or hosting service
 - Entire checkpoint ingestion
 - Graphite stack metadata ingestion
 - Codex review automation
@@ -76,7 +82,7 @@ Not included yet:
 
 | Integration | Evidence Field |
 | --- | --- |
-| Code Storage repository or branch id | `git.remote`, `artifacts`, future `gitProvider` metadata |
+| Forge repository or branch id | adapter metadata outside the provider-neutral core |
 | Entire checkpoint id | `artifacts[]`, future `checkpoints[]` |
 | Graphite stack id or parent PR | future `stack` metadata |
 | Codex review result | `checks[]` and `artifacts[]` |

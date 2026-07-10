@@ -89,6 +89,7 @@
     },
     "commandsRun": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
         "required": ["command", "status"],
@@ -107,6 +108,7 @@
     },
     "checks": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
         "required": ["name", "status"],
@@ -141,16 +143,36 @@
     "externalActionPolicy": {
       "$ref": "external-action-policy.schema.json"
     },
+    "context": {
+      "type": "object",
+      "required": ["schemaVersion", "packetPath", "digest", "baseCommit", "headCommit", "mergeBaseCommit", "mergeClean"],
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": { "const": "tabellio-context/v0.1" },
+        "packetPath": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "baseCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "headCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "mergeBaseCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "mergeClean": { "type": "boolean" }
+      }
+    },
     "artifacts": {
       "type": "array",
       "items": {
         "type": "object",
         "required": ["name", "path"],
         "additionalProperties": true,
+        "dependentRequired": {
+          "hashScope": ["sha256"]
+        },
         "properties": {
           "name": { "type": "string", "minLength": 1 },
           "path": { "type": "string", "minLength": 1 },
-          "sha256": { "type": "string" }
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "hashScope": {
+            "enum": ["file-bytes", "canonical-json-without-this-artifact-sha256"]
+          }
         }
       }
     },
