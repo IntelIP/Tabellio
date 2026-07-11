@@ -34,14 +34,15 @@
     },
     "findings": {
       "type": "array",
+      "maxItems": 1000,
       "items": {
         "type": "object",
         "required": ["id", "title", "body", "severity", "actionable", "path", "line"],
         "additionalProperties": false,
         "properties": {
           "id": { "type": "string", "minLength": 1 },
-          "title": { "type": "string", "minLength": 1 },
-          "body": { "type": "string" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "body": { "type": "string", "maxLength": 65536 },
           "severity": { "enum": ["critical", "high", "medium", "low", "info"] },
           "actionable": { "type": "boolean" },
           "path": { "type": ["string", "null"], "minLength": 1 },

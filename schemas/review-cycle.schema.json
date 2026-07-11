@@ -32,7 +32,7 @@
         "id": { "type": "string", "minLength": 1 },
         "number": { "type": "integer", "minimum": 1 },
         "url": { "type": "string", "format": "uri", "pattern": "^https?://" },
-        "title": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 500 },
         "state": { "enum": ["open", "closed", "merged"] },
         "draft": { "type": "boolean" },
         "mergeable": { "type": ["boolean", "null"] },
@@ -47,10 +47,12 @@
     "round": { "type": "integer", "minimum": 1 },
     "feedback": {
       "type": "array",
+      "maxItems": 5000,
       "items": { "$ref": "#/$defs/feedback" }
     },
     "fixes": {
       "type": "array",
+      "maxItems": 5000,
       "items": { "$ref": "#/$defs/fix" }
     },
     "checks": { "$ref": "#/$defs/checks" },
@@ -85,8 +87,8 @@
         "providerId": { "type": "string", "minLength": 1 },
         "kind": { "enum": ["review", "review-comment", "issue-comment", "check", "agent-finding"] },
         "author": { "$ref": "#/$defs/nullableString" },
-        "title": { "type": "string", "minLength": 1 },
-        "body": { "type": "string" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "body": { "type": "string", "maxLength": 65536 },
         "path": { "$ref": "#/$defs/nullableString" },
         "line": { "type": ["integer", "null"], "minimum": 1 },
         "commit": { "oneOf": [{ "$ref": "#/$defs/oid" }, { "type": "null" }] },
@@ -109,7 +111,7 @@
         "originalCommit": { "$ref": "#/$defs/oid" },
         "commit": { "$ref": "#/$defs/oid" },
         "checkpointId": { "type": "string", "minLength": 1 },
-        "summary": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
         "actor": { "type": "string", "minLength": 1 },
         "published": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
@@ -125,6 +127,7 @@
         "total": { "type": "integer", "minimum": 0 },
         "statuses": {
           "type": "array",
+          "maxItems": 1000,
           "items": {
             "type": "object",
             "required": ["id", "context", "state", "description", "targetUrl", "createdAt", "updatedAt"],
@@ -151,7 +154,7 @@
         "type": { "enum": ["synced", "triaged", "fix-recorded", "agent-review-imported"] },
         "actor": { "type": "string", "minLength": 1 },
         "at": { "type": "string", "format": "date-time" },
-        "detail": { "type": "string", "minLength": 1 }
+        "detail": { "type": "string", "minLength": 1, "maxLength": 2000 }
       }
     }
   }

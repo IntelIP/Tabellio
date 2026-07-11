@@ -6,6 +6,9 @@ import { latestValidationResult } from "./validation-runner.mjs";
 
 export const REVIEW_CYCLE_SCHEMA_VERSION = "tabellio-review-cycle/v0.1";
 export const AGENT_REVIEW_SCHEMA_VERSION = "tabellio-agent-review/v0.1";
+const MAX_FEEDBACK_ITEMS = 5_000;
+const MAX_AGENT_FINDINGS = 1_000;
+const MAX_TEXT_BODY = 64 * 1024;
 
 export class ReviewCycleManager {
   constructor({ store, ledger, validationLedger = null, provider, repositoryId, owner, repo }) {
@@ -271,6 +274,7 @@ export function validateReviewCycle(value) {
   member(value.status, ["draft", "needs_triage", "changes_requested", "update_required", "blocked", "validating", "ready", "merged", "closed"], "status");
   positiveInteger(value.round, "round");
   if (!Array.isArray(value.feedback)) throw new Error("feedback must be an array.");
+  if (value.feedback.length > MAX_FEEDBACK_ITEMS) throw new Error(`feedback must contain at most ${MAX_FEEDBACK_ITEMS} entries.`);
   const feedbackIds = new Set();
   for (const [index, item] of value.feedback.entries()) {
     validateFeedback(item, `feedback[${index}]`);
@@ -278,6 +282,7 @@ export function validateReviewCycle(value) {
     feedbackIds.add(item.id);
   }
   if (!Array.isArray(value.fixes)) throw new Error("fixes must be an array.");
+  if (value.fixes.length > MAX_FEEDBACK_ITEMS) throw new Error(`fixes must contain at most ${MAX_FEEDBACK_ITEMS} entries.`);
   const fixIds = new Set();
   for (const [index, fix] of value.fixes.entries()) {
     validateFix(fix, `fixes[${index}]`);
@@ -320,6 +325,7 @@ export function validateAgentReview(value) {
   positiveInteger(value.changeRequest.number, "agent review.changeRequest.number");
   oid(value.changeRequest.headCommit, "agent review.changeRequest.headCommit");
   if (!Array.isArray(value.findings)) throw new Error("agent review.findings must be an array.");
+  if (value.findings.length > MAX_AGENT_FINDINGS) throw new Error(`agent review.findings must contain at most ${MAX_AGENT_FINDINGS} entries.`);
   const ids = new Set();
   for (const [index, finding] of value.findings.entries()) {
     const path = `agent review.findings[${index}]`;
@@ -329,7 +335,9 @@ export function validateAgentReview(value) {
     if (ids.has(finding.id)) throw new Error(`agent review.findings contains duplicate id ${finding.id}.`);
     ids.add(finding.id);
     requiredString(finding.title, `${path}.title`);
+    maxLength(finding.title, 500, `${path}.title`);
     if (typeof finding.body !== "string") throw new Error(`${path}.body must be a string.`);
+    maxLength(finding.body, MAX_TEXT_BODY, `${path}.body`);
     member(finding.severity, ["critical", "high", "medium", "low", "info"], `${path}.severity`);
     boolean(finding.actionable, `${path}.actionable`);
     if (finding.path !== null) requiredString(finding.path, `${path}.path`);
@@ -527,6 +535,7 @@ function validateChangeRequest(value) {
   positiveInteger(value.number, "changeRequest.number");
   httpUrl(value.url, "changeRequest.url");
   requiredString(value.title, "changeRequest.title");
+  maxLength(value.title, 500, "changeRequest.title");
   member(value.state, ["open", "closed", "merged"], "changeRequest.state");
   boolean(value.draft, "changeRequest.draft");
   if (value.mergeable !== null) boolean(value.mergeable, "changeRequest.mergeable");
@@ -546,7 +555,9 @@ function validateFeedback(value, path) {
   member(value.kind, ["review", "review-comment", "issue-comment", "check", "agent-finding"], `${path}.kind`);
   if (value.author !== null) requiredString(value.author, `${path}.author`);
   requiredString(value.title, `${path}.title`);
+  maxLength(value.title, 500, `${path}.title`);
   if (typeof value.body !== "string") throw new Error(`${path}.body must be a string.`);
+  maxLength(value.body, MAX_TEXT_BODY, `${path}.body`);
   if (value.path !== null) requiredString(value.path, `${path}.path`);
   if (value.line !== null && (!Number.isInteger(value.line) || value.line <= 0)) throw new Error(`${path}.line must be a positive integer or null.`);
   if (value.commit !== null) oid(value.commit, `${path}.commit`);
@@ -569,6 +580,7 @@ function validateFix(value, path) {
   oid(value.commit, `${path}.commit`);
   requiredString(value.checkpointId, `${path}.checkpointId`);
   requiredString(value.summary, `${path}.summary`);
+  maxLength(value.summary, 2_000, `${path}.summary`);
   requiredString(value.actor, `${path}.actor`);
   boolean(value.published, `${path}.published`);
   date(value.createdAt, `${path}.createdAt`);
@@ -581,6 +593,7 @@ function validateChecks(value) {
   requiredString(value.state, "checks.state");
   if (!Number.isInteger(value.total) || value.total < 0) throw new Error("checks.total must be a non-negative integer.");
   if (!Array.isArray(value.statuses)) throw new Error("checks.statuses must be an array.");
+  if (value.statuses.length > 1_000) throw new Error("checks.statuses must contain at most 1000 entries.");
 }
 
 function validateEvent(value, path) {
@@ -591,6 +604,7 @@ function validateEvent(value, path) {
   requiredString(value.actor, `${path}.actor`);
   date(value.at, `${path}.at`);
   requiredString(value.detail, `${path}.detail`);
+  maxLength(value.detail, 2_000, `${path}.detail`);
 }
 
 function exactKeys(value, expected, path) {
@@ -605,6 +619,10 @@ function object(value, path) {
 
 function requiredString(value, path) {
   if (typeof value !== "string" || value.trim() === "") throw new Error(`${path} must be a non-empty string.`);
+}
+
+function maxLength(value, maximum, path) {
+  if (typeof value === "string" && value.length > maximum) throw new Error(`${path} must contain at most ${maximum} characters.`);
 }
 
 function positiveInteger(value, path) {

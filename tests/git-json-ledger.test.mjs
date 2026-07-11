@@ -40,3 +40,21 @@ test("Git JSON ledger works in a bare repository", async (t) => {
   const written = await ledger.write("cycles/bare.json", { durable: true }, { expectedVersion: null });
   assert.deepEqual(await ledger.read("cycles/bare.json"), { value: { durable: true }, version: written.version });
 });
+
+test("concurrent Git JSON ledger writers allow exactly one compare-and-swap winner", async (t) => {
+  const fixture = await createFixture();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const first = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/reviews" });
+  const second = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/reviews" });
+  const settled = await Promise.allSettled([
+    first.write("cycles/first.json", { writer: "first" }, { expectedVersion: null }),
+    second.write("cycles/second.json", { writer: "second" }, { expectedVersion: null }),
+  ]);
+  const fulfilled = settled.filter((result) => result.status === "fulfilled");
+  const rejected = settled.filter((result) => result.status === "rejected");
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert(rejected[0].reason instanceof LedgerConflictError);
+  const listed = await first.list("cycles");
+  assert.equal(listed.paths.length, 1);
+});

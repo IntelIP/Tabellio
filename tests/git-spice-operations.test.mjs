@@ -84,6 +84,7 @@ test("approved git-spice operations execute exact safe argument sets and consume
     const captured = JSON.parse(await readFile(capturePath, "utf8"));
     assert.deepEqual(captured.args, item.expected);
     assert.equal(captured.hasForgejoToken, true);
+    assert.equal(captured.hasTargetLock, true);
     assert.deepEqual(operationArgs(intent), item.expected);
     await assert.rejects(
       operations.execute({ intent, approval, repositoryId: "example/repository", now }),
@@ -206,8 +207,11 @@ async function fakeGitSpice(root, { fail = false } = {}) {
   const binary = join(root, "git-spice");
   const source = `#!/usr/bin/env node
 import { writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 const capture = process.env.CAPTURE_PATH;
-if (capture) writeFileSync(capture, JSON.stringify({ args: process.argv.slice(2), hasForgejoToken: Boolean(process.env.FORGEJO_TOKEN) }));
+let hasTargetLock = false;
+try { execFileSync("git", ["rev-parse", "--verify", "refs/tabellio/locks/stack-write-operation"], { stdio: "ignore" }); hasTargetLock = true; } catch {}
+if (capture) writeFileSync(capture, JSON.stringify({ args: process.argv.slice(2), hasForgejoToken: Boolean(process.env.FORGEJO_TOKEN), hasTargetLock }));
 ${fail ? 'process.stderr.write("simulated failure private review context secret-token\\n"); process.exit(2);' : "process.exit(0);"}
 `;
   await writeFile(binary, source);

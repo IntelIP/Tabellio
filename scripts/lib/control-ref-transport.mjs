@@ -1,12 +1,14 @@
-import { mkdir, open, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { open, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
 import { runGit } from "./git-process.mjs";
+import { withOperationLock } from "./operation-lock.mjs";
 import { digestObject } from "./stack-operation.mjs";
 
 export const CONTROL_REF_INTENT_VERSION = "tabellio-control-ref-operation/v0.1";
 export const CONTROL_REF_APPROVAL_VERSION = "tabellio-control-ref-approval/v0.1";
+const DEFAULT_REMOTE_TIMEOUT_MS = 15 * 60 * 1000;
 export const CONTROL_REFS = [
   "refs/tabellio/reviews",
   "refs/tabellio/validations",
@@ -94,14 +96,17 @@ export async function snapshotControlRefs({ repoPath, remote, refs, env = {} }) 
 
 export class ApprovedControlRefTransport {
   #env;
+  #timeoutMs;
 
-  constructor({ repoPath, stateRoot, env = {} }) {
+  constructor({ repoPath, stateRoot, env = {}, timeoutMs = DEFAULT_REMOTE_TIMEOUT_MS }) {
+    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) throw new TypeError("timeoutMs must be a positive integer.");
     this.repoPath = repoPath;
     this.stateRoot = stateRoot;
     this.#env = env;
+    this.#timeoutMs = timeoutMs;
   }
 
-  static async open({ repoPath = process.cwd(), stateRoot = null, env = {} } = {}) {
+  static async open({ repoPath = process.cwd(), stateRoot = null, env = {}, timeoutMs = DEFAULT_REMOTE_TIMEOUT_MS } = {}) {
     const inputPath = resolve(repoPath);
     const bare = (await runGit({ args: ["rev-parse", "--is-bare-repository"], cwd: inputPath })).stdout.trim() === "true";
     const top = bare
@@ -112,6 +117,7 @@ export class ApprovedControlRefTransport {
       repoPath: top,
       stateRoot: stateRoot === null ? resolve(top, common, "tabellio", "control-ref-operations") : resolve(stateRoot),
       env,
+      timeoutMs,
     });
   }
 
@@ -146,7 +152,7 @@ export class ApprovedControlRefTransport {
       await handle.close();
       try {
         for (const entry of intent.refs) {
-          const actualRemote = await remoteOid(this.repoPath, intent.remote, entry.name, this.#env);
+          const actualRemote = await remoteOid(this.repoPath, intent.remote, entry.name, this.#env, this.#timeoutMs);
           if (actualRemote !== entry.remoteOid) throw new Error(`Remote control ref changed after planning: ${entry.name}.`);
         }
         const results = intent.operation === "publish"
@@ -187,6 +193,7 @@ export class ApprovedControlRefTransport {
       ],
       cwd: this.repoPath,
       env: this.#env,
+      timeoutMs: this.#timeoutMs,
     });
     return entries.map((entry) => ({
       after: entry.localOid,
@@ -216,22 +223,16 @@ export class ApprovedControlRefTransport {
   }
 
   async #fetchObjects(remote, ref) {
-    await runGit({ args: ["fetch", "--no-tags", "--no-write-fetch-head", remote, ref], cwd: this.repoPath, env: this.#env });
+    await runGit({ args: ["fetch", "--no-tags", "--no-write-fetch-head", remote, ref], cwd: this.repoPath, env: this.#env, timeoutMs: this.#timeoutMs });
   }
 
   async #withLock(action) {
-    await mkdir(this.stateRoot, { recursive: true });
-    const path = join(this.stateRoot, "active.lock");
-    const handle = await open(path, "wx").catch((error) => {
-      if (error?.code === "EEXIST") throw new Error("Another control-ref operation is active.");
-      throw error;
-    });
-    try {
-      return await action();
-    } finally {
-      await handle.close();
-      await rm(path, { force: true });
-    }
+    return withOperationLock({
+      repoPath: this.repoPath,
+      stateRoot: this.stateRoot,
+      lockName: "control-ref-operation",
+      label: "control-ref operation",
+    }, action);
   }
 }
 
@@ -244,8 +245,8 @@ async function localOid(cwd, ref) {
   return result.exitCode === 0 ? result.stdout.trim() : null;
 }
 
-async function remoteOid(cwd, remote, ref, env) {
-  const result = await runGit({ args: ["ls-remote", "--refs", remote, ref], cwd, env });
+async function remoteOid(cwd, remote, ref, env, timeoutMs) {
+  const result = await runGit({ args: ["ls-remote", "--refs", remote, ref], cwd, env, ...(timeoutMs ? { timeoutMs } : {}) });
   const lines = result.stdout.trim() === "" ? [] : result.stdout.trim().split(/\r?\n/);
   if (lines.length > 1) throw new Error(`Remote returned multiple values for ${ref}.`);
   if (lines.length === 0) return null;
@@ -267,10 +268,13 @@ function updateRefsAtomically(cwd, updates) {
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stderr = "";
+    const timer = setTimeout(() => child.kill("SIGTERM"), 30_000);
+    child.stdout.resume();
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.once("error", reject);
     child.once("close", (code, signal) => {
+      clearTimeout(timer);
       if (code === 0) resolvePromise();
       else reject(new Error(`Atomic control-ref update failed with ${signal ? `signal ${signal}` : `exit code ${code}`}${stderr.trim() ? `: ${stderr.trim().slice(0, 1_000)}` : "."}`));
     });

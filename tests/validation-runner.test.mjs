@@ -96,6 +96,27 @@ test("validation manifest rejects shell-like ambiguity and missing checkpoint ra
   );
 });
 
+test("validation runner terminates timed-out commands and skips remaining fail-fast work", async (t) => {
+  const fixture = await createFixture();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(manifest([
+    command("timeout", [process.execPath, "-e", "setTimeout(() => {}, 5000)"], ".", 150),
+    command("must-skip", [process.execPath, "-e", "process.exit(0)"]),
+  ]), null, 2));
+  await commit(fixture.seed, "Add timeout validation", "validation-timeout");
+  const store = await NativeGitStore.open(fixture.seed);
+  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
+  const runner = new ValidationRunner({ store, ledger });
+  const started = Date.now();
+  const result = await runner.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" });
+  assert.equal(result.result.status, "failed");
+  assert.equal(result.result.commands[0].status, "timed_out");
+  assert(["SIGTERM", "SIGKILL"].includes(result.result.commands[0].signal));
+  assert.equal(result.result.commands[1].status, "skipped");
+  assert(Date.now() - started < 3_000);
+});
+
 function manifest(commands) {
   return {
     schemaVersion: "tabellio-validation/v0.1",
@@ -106,8 +127,8 @@ function manifest(commands) {
   };
 }
 
-function command(id, argv, cwd = ".") {
-  return { id, argv, cwd, timeoutMs: 10_000, required: true };
+function command(id, argv, cwd = ".", timeoutMs = 10_000) {
+  return { id, argv, cwd, timeoutMs, required: true };
 }
 
 async function commit(cwd, message, checkpoint) {

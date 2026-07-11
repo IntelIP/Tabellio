@@ -1,7 +1,8 @@
-import { open, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { open, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { runGit } from "../lib/git-process.mjs";
+import { withOperationLock } from "../lib/operation-lock.mjs";
 import { repositoryIdentity } from "../lib/repository-identity.mjs";
 import {
   digestObject,
@@ -125,18 +126,12 @@ export class ApprovedGitSpiceOperations {
   }
 
   async #withLock(action) {
-    await mkdir(this.stateRoot, { recursive: true });
-    const lockPath = join(this.stateRoot, "active.lock");
-    const handle = await open(lockPath, "wx").catch((error) => {
-      if (error?.code === "EEXIST") throw new Error("Another stack write operation is active.");
-      throw error;
-    });
-    try {
-      return await action();
-    } finally {
-      await handle.close();
-      await rm(lockPath, { force: true });
-    }
+    return withOperationLock({
+      repoPath: this.store.repoPath,
+      stateRoot: this.stateRoot,
+      lockName: "stack-write-operation",
+      label: "stack write operation",
+    }, action);
   }
 }
 

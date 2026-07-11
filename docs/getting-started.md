@@ -148,3 +148,5 @@ Keep the first PR small:
 3. Open a test change request on Forgejo.
 4. Run exact-head validation and sync the durable review cycle.
 5. Publish canonical control refs with an approved one-use operation.
+
+Before production deployment, apply the concurrency, worker isolation, backup, mirror, and monitoring guidance in [Operations hardening](operations-hardening.md).

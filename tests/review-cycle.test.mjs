@@ -5,6 +5,7 @@ import test from "node:test";
 import { GitJsonLedger } from "../scripts/lib/git-json-ledger.mjs";
 import {
   ReviewCycleManager,
+  validateAgentReview,
   validateReviewCycle,
 } from "../scripts/lib/review-cycle.mjs";
 import { runGit } from "../scripts/lib/git-process.mjs";
@@ -177,6 +178,23 @@ test("review readiness consumes only the latest validation for the exact PR head
   await validationLedger.write(`commits/${fixture.featureCommit}/${failed.runId}.json`, failed, { expectedVersion: current.version });
   result = await manager.sync({ number: 7, actor: "sync-agent", now: new Date("2026-07-10T20:04:00.000Z") });
   assert.equal(result.cycle.status, "blocked");
+});
+
+test("agent review contract bounds finding count and text size", () => {
+  const input = {
+    schemaVersion: "tabellio-agent-review/v0.1",
+    reviewId: "bounded-review",
+    reviewer: { id: "codex", runtime: "openai-codex" },
+    repository: { id: "example/repository" },
+    changeRequest: { number: 7, headCommit: "a".repeat(40) },
+    findings: [],
+    createdAt: timestamp,
+  };
+  const finding = { id: "finding", title: "Title", body: "Body", severity: "medium", actionable: true, path: null, line: null };
+  input.findings = Array.from({ length: 1_001 }, (_value, index) => ({ ...finding, id: `finding-${index}` }));
+  assert.throws(() => validateAgentReview(input), /at most 1000/);
+  input.findings = [{ ...finding, body: "x".repeat(65_537) }];
+  assert.throws(() => validateAgentReview(input), /at most 65536/);
 });
 
 function fakeProvider(fixture) {

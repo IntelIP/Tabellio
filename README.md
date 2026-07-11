@@ -197,6 +197,7 @@ The external-action checker fails when an action is marked `attempted: true` wit
 - [Approved stack operations](docs/stack-operations.md)
 - [Durable review and fix loop](docs/review-loop.md)
 - [Provider-neutral validation](docs/validation-runner.md)
+- [Operations hardening](docs/operations-hardening.md)
 - [Workflow model](docs/workflow-model.md)
 - [Native Git foundation](docs/native-git-foundation.md)
 - [Evidence schema](docs/evidence-schema.md)
