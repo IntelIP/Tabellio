@@ -1,6 +1,6 @@
 # Agentic Tooling Stack
 
-Tabellio now owns the minimum Git substrate agents need. It uses standard Git rather than requiring a proprietary code-storage API. A forge can still store repositories and host review.
+Tabellio owns agent workflow and standard Git contracts. Private remote provider stores repositories and implements Git transport. Forgejo is current backend, not product surface.
 
 The main idea: agentic Git should be built around more than a patch. It should preserve the work request, the reason for the change, the runtime that produced it, the commands that ran, the checkpoints that explain it, and the side effects that require approval.
 
@@ -14,7 +14,7 @@ The main idea: agentic Git should be built around more than a patch. It should p
 | Checkpoint ledger | [Entire Checkpoints](https://entire.io/) and [Entire CLI](https://github.com/entireio/cli) | Links commits to agent sessions, prompts, transcript context, token usage, and attribution | Required default through `EntireLedgerProvider`; metadata normalized as `tabellio-ledger/v0.1` |
 | Evidence gate | Tabellio | Writes and validates the change evidence envelope and external-action policy | Core product surface |
 | Stacked review | [git-spice](https://abhinav.github.io/git-spice/) | Keeps dependent change requests small, ordered, reviewable, and resubmittable across Forgejo, Gitea, GitLab, Bitbucket, or GitHub | Read through `GitSpiceStackManager` into `tabellio-stack/v0.1` |
-| Canonical forge | Forgejo | Hosts code, change requests, comments, reviews, and commit status | Forgejo API adapter; no hosted workflow dependency |
+| Remote repository | Forgejo today; replaceable provider contract | Hosts Git objects and implements private repository/review APIs | Agent-facing surface remains Tabellio and standard Git |
 | Validation workers | Local agents or operator-managed workers | Run committed argv manifests against exact commits | Durable results under `refs/tabellio/validations` |
 | Control-ref transport | Standard Git protocol | Shares review, validation, and Entire state | Approval-gated and fast-forward-only |
 
@@ -38,7 +38,7 @@ task source
   -> immutable context packet
   -> read-only merge preview
   -> exact-commit validation result
-  -> Forgejo review and checks
+  -> Tabellio review with remote-provider synchronization
   -> approved control-ref publication
   -> explicit compare-and-swap merge or release gate
 ```
@@ -72,16 +72,19 @@ Included:
 - local writer and validators
 - provider-neutral change-request template and docs
 - disposable Forgejo 15.0.3 lab bound to localhost
-- read-only Forgejo provider for repositories, pull requests, reviews, comments, and commit statuses
+- Forgejo provider for repository lifecycle, Git remotes, pull requests, reviews, comments, and commit statuses
 - approval-gated git-spice submit, update, sync, restack, and merge operations with one-use receipts
 - Git-native review ledger with Forgejo feedback, provider-neutral agent findings, triage, fixes, and readiness state
 - provider-neutral exact-commit validation runner with durable results on `refs/tabellio/validations`
-- canonical Forgejo platform contract
+- provider-neutral headless platform contract with legacy v0.1 reader
+- scoped and idempotent headless API contract
+- lease-based worker retry and recovery contract
+- private Forgejo, PostgreSQL, and Git-only gateway production topology
 - approval-gated fast-forward transport for review, validation, and Entire refs
 
 Not included yet:
 
-- production Forgejo deployment
+- live production deployment
 - transcript indexing or storage outside Entire
 - forge comment publication, general review-thread mutation, and signed approvals
 - Codex review automation

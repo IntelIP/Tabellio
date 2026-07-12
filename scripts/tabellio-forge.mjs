@@ -56,8 +56,12 @@ function parseArgs(args) {
   }
   const allowed = new Set(["--base-url", "--owner", "--repo", "--token-file", "--timeout-ms", "--state", "--number", "--commit"]);
   for (const flag of values.keys()) if (!allowed.has(flag)) throw new Error(`Unsupported option: ${flag}.`);
-  const baseUrl = values.get("--base-url") ?? process.env.TABELLIO_FORGE_URL;
-  requiredString(baseUrl, "--base-url or TABELLIO_FORGE_URL");
+  const baseUrl = values.get("--base-url")
+    ?? process.env.TABELLIO_REMOTE_API_URL
+    ?? process.env.TABELLIO_FORGE_API_URL
+    ?? process.env.TABELLIO_REMOTE_URL
+    ?? process.env.TABELLIO_FORGE_URL;
+  requiredString(baseUrl, "--base-url, TABELLIO_REMOTE_API_URL, TABELLIO_REMOTE_URL, or a legacy Forgejo URL variable");
   const needsRepository = command !== "version";
   const owner = values.get("--owner") ?? process.env.TABELLIO_FORGE_OWNER;
   const repo = values.get("--repo") ?? process.env.TABELLIO_FORGE_REPO;
@@ -80,7 +84,7 @@ function parseArgs(args) {
     baseUrl,
     owner,
     repo,
-    tokenFile: values.get("--token-file") ?? process.env.TABELLIO_FORGE_TOKEN_FILE ?? null,
+    tokenFile: values.get("--token-file") ?? process.env.TABELLIO_REMOTE_CREDENTIAL_FILE ?? process.env.TABELLIO_FORGE_TOKEN_FILE ?? null,
     timeoutMs,
     state,
     number,
@@ -89,8 +93,10 @@ function parseArgs(args) {
 }
 
 async function loadToken(tokenFile) {
-  const token = tokenFile ? (await readFile(tokenFile, "utf8")).trim() : process.env.TABELLIO_FORGE_TOKEN?.trim();
-  requiredString(token, "--token-file, TABELLIO_FORGE_TOKEN_FILE, or TABELLIO_FORGE_TOKEN");
+  const token = tokenFile
+    ? (await readFile(tokenFile, "utf8")).trim()
+    : (process.env.TABELLIO_REMOTE_CREDENTIAL ?? process.env.TABELLIO_FORGE_TOKEN)?.trim();
+  requiredString(token, "--token-file, TABELLIO_REMOTE_CREDENTIAL_FILE, TABELLIO_REMOTE_CREDENTIAL, or a legacy Forgejo credential variable");
   return token;
 }
 

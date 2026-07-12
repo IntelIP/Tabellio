@@ -1,0 +1,70 @@
+name: tabellio-remote
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: forgejo
+      POSTGRES_USER: forgejo
+      POSTGRES_PASSWORD: ${FORGEJO_DATABASE_PASSWORD:?set FORGEJO_DATABASE_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgejo -d forgejo"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - forgejo-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  forgejo:
+    image: data.forgejo.org/forgejo/forgejo:15.0.3
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO__database__DB_TYPE: postgres
+      FORGEJO__database__HOST: postgres:5432
+      FORGEJO__database__NAME: forgejo
+      FORGEJO__database__USER: forgejo
+      FORGEJO__database__PASSWD: ${FORGEJO_DATABASE_PASSWORD:?set FORGEJO_DATABASE_PASSWORD}
+      FORGEJO__server__DOMAIN: ${TABELLIO_GIT_DOMAIN:?set TABELLIO_GIT_DOMAIN}
+      FORGEJO__server__ROOT_URL: ${TABELLIO_GIT_ROOT_URL:?set TABELLIO_GIT_ROOT_URL}
+      FORGEJO__server__HTTP_PORT: "3000"
+      FORGEJO__server__DISABLE_SSH: "true"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__security__INSTALL_LOCK: "true"
+      FORGEJO__actions__ENABLED: "false"
+      FORGEJO__repository__ENABLE_PUSH_CREATE_USER: "false"
+      FORGEJO__repository__ENABLE_PUSH_CREATE_ORG: "false"
+      FORGEJO__log__MODE: console
+    expose:
+      - "3000"
+    volumes:
+      - forgejo-data:/data
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  git-gateway:
+    image: nginx:1.28-alpine
+    depends_on:
+      - forgejo
+    ports:
+      - "${TABELLIO_GIT_BIND_ADDRESS:-0.0.0.0}:${TABELLIO_GIT_PORT:-3400}:8080"
+    volumes:
+      - ./nginx.git-only.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  forgejo-data:
+  forgejo-postgres:

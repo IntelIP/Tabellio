@@ -6,6 +6,15 @@ All notable changes to Tabellio are recorded here.
 
 ### Added
 
+- Headless `tabellio-platform/v0.2` contract with configurable remote provider and Git-only public surface.
+- Legacy v0.1 platform reader for rollback and staged migration.
+- Provider-neutral remote repository contract and Forgejo repository provisioning/archive operations.
+- Stable Tabellio change-request identities independent from backend IDs.
+- Scoped agent API for repositories, credentials, change requests, validation, approval-bound merge intents, and jobs.
+- Bounded JSON HTTP adapter with tenant isolation, exact-SHA validation, and mutation idempotency.
+- Lease-based worker contract with heartbeat, bounded retries, terminal failure, and expired-lease recovery.
+- PostgreSQL control-plane schema for repositories, jobs, idempotency, webhooks, and credential audit metadata.
+- Private Forgejo production topology with PostgreSQL and Git-only Nginx gateway.
 - Provider-neutral exact-commit validation runner with committed argv manifests and no shell execution.
 - Bounded SHA-256 output evidence, detached worktree cleanup, and durable results on `refs/tabellio/validations`.
 - Local validation results integrated into durable review readiness.
@@ -46,6 +55,9 @@ All notable changes to Tabellio are recorded here.
 
 ### Changed
 
+- Forgejo is now private replaceable backend rather than product review surface.
+- Repository identity defaults to configured canonical remote instead of `origin`.
+- Removed GitHub package metadata and Code Storage transition placeholder.
 - Replaced Graphite as the planned stacked-review integration with host-agnostic git-spice.
 
 ## 0.1.0 - 2026-07-08

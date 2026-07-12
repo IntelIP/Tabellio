@@ -1,14 +1,14 @@
-import { ForgeProvider } from "../lib/forge-provider.mjs";
+import { RemoteRepositoryProvider } from "../lib/remote-repository-provider.mjs";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_PAGE_LIMIT = 50;
 const MAX_PAGES = 20;
 
-export class ForgejoProvider extends ForgeProvider {
+export class ForgejoProvider extends RemoteRepositoryProvider {
   #token;
 
   constructor({ baseUrl, token, timeoutMs = DEFAULT_TIMEOUT_MS, fetchImpl = globalThis.fetch }) {
-    super();
+    super({ providerId: "forgejo" });
     requiredString(baseUrl, "baseUrl");
     requiredString(token, "token");
     if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) throw new TypeError("timeoutMs must be a positive integer.");
@@ -18,6 +18,7 @@ export class ForgejoProvider extends ForgeProvider {
     if (parsed.username || parsed.password) throw new TypeError("baseUrl must not contain credentials.");
     if (parsed.search || parsed.hash) throw new TypeError("baseUrl must not contain a query or fragment.");
     parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+    if (parsed.pathname.endsWith("/api/v1")) parsed.pathname = parsed.pathname.slice(0, -"/api/v1".length);
     this.baseUrl = parsed.toString().replace(/\/$/, "");
     this.#token = token;
     this.timeoutMs = timeoutMs;
@@ -32,6 +33,32 @@ export class ForgejoProvider extends ForgeProvider {
 
   async repository({ owner, repo }) {
     const value = await this.#request(repoPath(owner, repo));
+    return normalizeRepository(value);
+  }
+
+  async createRepository({ owner, name, private: privateRepository = true, defaultBranch = "main" }) {
+    requiredString(owner, "owner");
+    requiredString(name, "name");
+    requiredString(defaultBranch, "defaultBranch");
+    if (typeof privateRepository !== "boolean") throw new TypeError("private must be a boolean.");
+    const value = await this.#request(`/api/v1/orgs/${encodeURIComponent(owner)}/repos`, {}, {
+      method: "POST",
+      body: {
+        name,
+        private: privateRepository,
+        default_branch: defaultBranch,
+        auto_init: false,
+      },
+    });
+    return normalizeRepository(value);
+  }
+
+  async archiveRepository({ owner, repo, archived = true }) {
+    if (typeof archived !== "boolean") throw new TypeError("archived must be a boolean.");
+    const value = await this.#request(repoPath(owner, repo), {}, {
+      method: "PATCH",
+      body: { archived },
+    });
     return normalizeRepository(value);
   }
 
@@ -88,25 +115,30 @@ export class ForgejoProvider extends ForgeProvider {
     throw new ForgejoResponseError(`${path} exceeded the ${MAX_PAGES}-page safety limit.`);
   }
 
-  async #request(path, query = {}) {
+  async #request(path, query = {}, { method = "GET", body: requestBody = null } = {}) {
     const url = new URL(`${this.baseUrl}${path}`);
     for (const [key, value] of Object.entries(query)) url.searchParams.set(key, String(value));
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
+      const headers = {
+        Accept: "application/json",
+        Authorization: `token ${this.#token}`,
+      };
+      if (requestBody !== null) headers["Content-Type"] = "application/json";
       const response = await this.fetchImpl(url, {
-        method: "GET",
+        method,
         headers: {
-          Accept: "application/json",
-          Authorization: `token ${this.#token}`,
+          ...headers,
         },
+        body: requestBody === null ? undefined : JSON.stringify(requestBody),
         signal: controller.signal,
       });
       const body = await response.text();
       if (!response.ok) {
         throw new ForgejoHttpError({
           status: response.status,
-          method: "GET",
+          method,
           url: url.toString(),
           body: redact(body, this.#token),
         });
@@ -115,10 +147,10 @@ export class ForgejoProvider extends ForgeProvider {
       try {
         return JSON.parse(body);
       } catch {
-        throw new ForgejoResponseError(`GET ${url} returned invalid JSON.`);
+        throw new ForgejoResponseError(`${method} ${url} returned invalid JSON.`);
       }
     } catch (error) {
-      if (error?.name === "AbortError") throw new ForgejoResponseError(`GET ${url} timed out after ${this.timeoutMs}ms.`);
+      if (error?.name === "AbortError") throw new ForgejoResponseError(`${method} ${url} timed out after ${this.timeoutMs}ms.`);
       throw error;
     } finally {
       clearTimeout(timeout);

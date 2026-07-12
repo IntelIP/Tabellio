@@ -1,10 +1,12 @@
 {
-  "schemaVersion": "tabellio-platform/v0.1",
-  "canonicalForge": {
+  "schemaVersion": "tabellio-platform/v0.2",
+  "remoteRepository": {
     "provider": "forgejo",
-    "urlEnv": "TABELLIO_FORGE_URL",
-    "apiUrlEnv": "TABELLIO_FORGE_API_URL",
-    "tokenFileEnv": "TABELLIO_FORGE_TOKEN_FILE"
+    "remoteName": "forgejo",
+    "publicSurface": "git-only",
+    "gitUrlEnv": "TABELLIO_REMOTE_URL",
+    "apiUrlEnv": "TABELLIO_REMOTE_API_URL",
+    "credentialFileEnv": "TABELLIO_REMOTE_CREDENTIAL_FILE"
   },
   "git": {
     "stackManager": "git-spice",
@@ -25,11 +27,7 @@
     "resultRef": "refs/tabellio/validations"
   },
   "reviews": {
-    "provider": "forgejo",
+    "provider": "tabellio",
     "stateRef": "refs/tabellio/reviews"
-  },
-  "transition": {
-    "codeStorage": "current-origin",
-    "runtimeRequired": false
   }
 }

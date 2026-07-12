@@ -2,6 +2,18 @@
 
 This disposable Forgejo instance proves Tabellio can store and review code without GitHub.
 
+Production-shaped topology lives in `compose.production.yml`. It uses PostgreSQL, durable named volumes, private Forgejo networking, disabled registration and Actions, and an Nginx gateway exposing only Git smart HTTP.
+
+```bash
+export FORGEJO_DATABASE_PASSWORD='replace-through-secret-manager'
+export TABELLIO_GIT_DOMAIN=git.example.test
+export TABELLIO_GIT_ROOT_URL=https://git.example.test/
+docker compose -f infra/forgejo/compose.production.yml config
+docker compose -f infra/forgejo/compose.production.yml up -d
+```
+
+Example proves topology. Production operator must add TLS termination, encrypted volumes, managed database, backup/restore automation, secret-manager injection, monitoring, and tested upgrades. Do not expose Forgejo port or UI publicly.
+
 - HTTP binds only to `127.0.0.1:3300`.
 - SSH binds only to `127.0.0.1:2222`.
 - SQLite data stays under ignored `.tabellio/forgejo/`.

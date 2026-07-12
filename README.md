@@ -3,7 +3,7 @@
 ![Tabellio product overview](docs/assets/tabellio-hero.svg)
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Forgejo](https://img.shields.io/badge/Forgejo-canonical%20forge-FB923C?logo=forgejo&logoColor=white)](https://forgejo.org/)
+[![Forgejo](https://img.shields.io/badge/Forgejo-private%20backend-FB923C?logo=forgejo&logoColor=white)](https://forgejo.org/)
 [![JSON Schema](https://img.shields.io/badge/JSON%20Schema-evidence%20contract-0B6BFF)](https://json-schema.org/)
 [![SARIF](https://img.shields.io/badge/SARIF-code%20scanning-2563EB)](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
 [![git-spice](https://img.shields.io/badge/git--spice-stacked%20review-B45309)](https://abhinav.github.io/git-spice/)
@@ -12,7 +12,7 @@
 
 Provider-neutral Git context and evidence for agentic development.
 
-Tabellio gives coding agents a deterministic Git foundation: standard Git repositories, isolated worktrees, immutable commit IDs, merge previews, compare-and-swap ref updates, and context packets tied to the exact diff. Forgejo is the canonical review adapter. Any Git remote may store code; no GitHub API or hosted workflow runtime is required.
+Tabellio gives coding agents a deterministic Git foundation: standard Git repositories, isolated worktrees, immutable commit IDs, merge previews, compare-and-swap ref updates, and context packets tied to the exact diff. Tabellio owns the headless workflow; Forgejo is the current private remote-repository adapter. Any compatible Git provider may replace it.
 
 ## What It Adds
 
@@ -60,31 +60,35 @@ AI-assisted pull requests should not depend on reviewer trust alone. Tabellio gi
 | Runtime | [Node.js 20+](https://nodejs.org/) | Runs the local writer and validators |
 | Validation | `tabellio-validate` on any trusted worker | Runs an exact committed command manifest and stores results on a Git ref |
 | Evidence contract | [JSON Schema](https://json-schema.org/) | Validates the evidence envelope and external-action policy |
-| Review surface | [Forgejo](https://forgejo.org/) | Hosts repositories, change requests, comments, reviews, and commit status |
+| Review surface | Tabellio | Owns canonical change-request identity, review state, validation, and approvals |
+| Remote backend | [Forgejo](https://forgejo.org/) | Privately implements Git transport, repository lifecycle, and synchronized review metadata |
 | Stacked review | [git-spice](https://abhinav.github.io/git-spice/) | Host-agnostic stack engine for small dependent change requests |
 | Checkpoint ledger | [Entire](https://entire.io/) and [Entire CLI](https://github.com/entireio/cli) | Required default for agent session and checkpoint context |
 | Git substrate | Standard Git CLI, bare repositories, and worktrees | Stores repositories, branches, commits, patches, and agent-created code state |
 | Agent review | [OpenAI Codex](https://openai.com/codex/) | Produces provider-neutral findings imported into the durable review ledger |
 | Prior art | [SLSA](https://slsa.dev/) and [in-toto](https://in-toto.io/) | Inspiration for provenance and supply-chain evidence, without a compliance claim |
 
-The current public origin may remain a code-storage mirror during migration. It is not a runtime dependency. Entire is the required checkpoint ledger; git-spice manages stacks; Forgejo hosts review; Tabellio owns validation and durable control refs.
+The public origin may remain a code-storage mirror during migration. It is not a runtime dependency. Entire is the required checkpoint ledger; git-spice manages stacks; private Forgejo implements the current remote backend; Tabellio owns review, validation, approvals, and durable control refs.
 
 ## Core Files
 
 | Path | Purpose |
 | --- | --- |
-| `tabellio.platform.json` | Canonical forge, stack, ledger, validation, review, and control-ref contract |
+| `tabellio.platform.json` | Headless remote, stack, ledger, validation, review, and control-ref contract |
 | `schemas/` | Evidence and external-action JSON schemas |
 | `scripts/providers/native-git-store.mjs` | Standard Git storage provider |
 | `scripts/providers/git-spice-stack-manager.mjs` | Read-only git-spice stack adapter |
 | `scripts/providers/git-spice-operations.mjs` | Approval-gated git-spice submit, update, sync, restack, and merge adapter |
 | `scripts/providers/entire-ledger-provider.mjs` | Metadata-only Entire checkpoint adapter |
-| `scripts/providers/forgejo-provider.mjs` | Read-only Forgejo repository and review adapter |
+| `scripts/providers/forgejo-provider.mjs` | Forgejo repository lifecycle and review backend adapter |
+| `scripts/lib/headless-api.mjs` | Scoped, idempotent agent API and queue contract |
+| `scripts/lib/headless-http.mjs` | Bounded JSON-over-HTTP adapter for external agents |
+| `scripts/lib/job-worker.mjs` | Lease-based worker execution and bounded retry contract |
 | `scripts/lib/git-json-ledger.mjs` | Versioned, compare-and-swap JSON state on standard Git refs |
 | `scripts/lib/review-cycle.mjs` | Durable forge and agent review/fix state machine |
 | `scripts/lib/validation-runner.mjs` | Exact-commit, shell-free validation with bounded evidence logs |
 | `scripts/lib/control-ref-transport.mjs` | Approval-gated, fast-forward-only sharing of review, validation, and Entire refs |
-| `infra/forgejo/` | Disposable localhost Forgejo integration lab |
+| `infra/forgejo/` | Disposable lab plus private Git-only production topology |
 | `scripts/lib/` | Git process, repository contract, worktree, and context primitives |
 | `scripts/` | Dependency-free capture, writer, and validators |
 | `examples/` | Minimal valid context, evidence, review, validation, stack, and ledger fixtures |
@@ -102,7 +106,7 @@ npm run tabellio:platform:check
 node scripts/tabellio-validate.mjs run --repo . --commit HEAD --manifest tabellio.validation.json
 ```
 
-Configure `TABELLIO_FORGE_URL`, `TABELLIO_FORGE_API_URL`, and `TABELLIO_FORGE_TOKEN_FILE` for Forgejo operations. Tokens stay in owner-readable files and never enter remote URLs or command arguments.
+Configure `TABELLIO_REMOTE_URL`, `TABELLIO_REMOTE_API_URL`, `TABELLIO_REMOTE_CREDENTIAL_FILE`, and `TABELLIO_REMOTE_NAME` for remote operations. Legacy Forgejo variables remain readable during migration. Credentials stay in owner-readable files and never enter remote URLs or command arguments.
 
 Validate the bundled fixture:
 

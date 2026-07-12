@@ -1,4 +1,9 @@
 export class RepositoryStore {
+  /** @param {string} key @returns {Promise<string | null>} */
+  async gitConfig(_key) {
+    throw new Error("RepositoryStore.gitConfig must be implemented.");
+  }
+
   /** @param {string} revision @returns {Promise<string>} */
   async resolveRef(_revision) {
     throw new Error("RepositoryStore.resolveRef must be implemented.");

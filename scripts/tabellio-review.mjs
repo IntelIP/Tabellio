@@ -32,6 +32,7 @@ try {
     ledger,
     validationLedger,
     provider,
+    providerId: options.providerId ?? process.env.TABELLIO_REMOTE_PROVIDER ?? "forgejo",
     repositoryId,
     owner: options.owner,
     repo: options.forgeRepo,
@@ -89,7 +90,7 @@ function parseArgs(args) {
     if (Object.hasOwn(values, key)) throw new Error(`Duplicate option: ${flag}.`);
     values[key] = value;
   }
-  const common = ["repo", "repoId", "owner", "forgeRepo", "number", "actor", "ledgerRef", "validationLedgerRef"];
+  const common = ["repo", "repoId", "providerId", "owner", "forgeRepo", "number", "actor", "ledgerRef", "validationLedgerRef"];
   const allowed = {
     sync: [...common, "baseUrl", "tokenFile"],
     status: common,

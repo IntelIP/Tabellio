@@ -143,6 +143,16 @@ test("review cycle persists forge and agent feedback through triage and checkpoi
   assert.throws(() => validateReviewCycle(tampered), /digest does not match|status does not match/);
   const history = await runGit({ args: ["rev-list", "--count", "refs/tabellio/reviews"], cwd: fixture.seed });
   assert.equal(Number(history.stdout.trim()), 9);
+  const reader = new ReviewCycleManager({
+    store,
+    ledger,
+    provider: null,
+    providerId: "forgejo",
+    repositoryId: "example/repository",
+    owner: "acme",
+    repo: "project",
+  });
+  assert.equal((await reader.status({ number: 7 })).value.id, result.cycle.id);
   const worktree = await runGit({ args: ["status", "--porcelain=v1"], cwd: fixture.seed });
   assert.equal(worktree.stdout, "");
 });
@@ -178,6 +188,7 @@ test("review readiness consumes only the latest validation for the exact PR head
   await validationLedger.write(`commits/${fixture.featureCommit}/${failed.runId}.json`, failed, { expectedVersion: current.version });
   result = await manager.sync({ number: 7, actor: "sync-agent", now: new Date("2026-07-10T20:04:00.000Z") });
   assert.equal(result.cycle.status, "blocked");
+  assert.equal(result.cycle.feedback.find((item) => item.id === "check:validation:validation-fail").source, "tabellio");
 });
 
 test("agent review contract bounds finding count and text size", () => {
@@ -203,6 +214,7 @@ function fakeProvider(fixture) {
   let draft = false;
   let mergeable = true;
   return {
+    providerId: "forgejo",
     setChecks(value) { checkState = value; },
     setHead(value) { headCommit = value; },
     setDraft(value) { draft = value; },
@@ -292,6 +304,7 @@ function fakeProvider(fixture) {
 
 function emptyProvider(fixture) {
   return {
+    providerId: "forgejo",
     async changeRequest() {
       return {
         id: "21",

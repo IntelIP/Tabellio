@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 
-export async function repositoryIdentity(store, explicitId = null) {
+export async function repositoryIdentity(store, explicitId = null, {
+  remoteName = process.env.TABELLIO_REMOTE_NAME ?? "forgejo",
+} = {}) {
   if (explicitId) return explicitId;
-  const remote = await store.gitConfig("remote.origin.url");
+  if (!/^[A-Za-z0-9._-]+$/.test(remoteName)) throw new Error("remoteName must be a valid Git remote name.");
+  const remote = await store.gitConfig(`remote.${remoteName}.url`);
   return remote ? normalizeRepositoryRemote(remote) : localRepositoryId(store.repoPath);
 }
 

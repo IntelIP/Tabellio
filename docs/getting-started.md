@@ -54,13 +54,14 @@ The lab is disposable and localhost-only. Generated secrets and Forgejo data rem
 
 ## Configure The Platform
 
-`tabellio.platform.json` makes the operating model explicit: Forgejo review, git-spice stacks, Entire checkpoints, local validation, and durable control refs.
+`tabellio.platform.json` makes the operating model explicit: headless remote repository, Tabellio review state, git-spice stacks, Entire checkpoints, local validation, and durable control refs.
 
 ```bash
 npm run tabellio:platform:check
-export TABELLIO_FORGE_URL=https://forge.example.test
-export TABELLIO_FORGE_API_URL=https://forge.example.test/api/v1
-export TABELLIO_FORGE_TOKEN_FILE=$HOME/.config/tabellio/forgejo-token
+export TABELLIO_REMOTE_URL=https://git.example.test
+export TABELLIO_REMOTE_API_URL=https://forgejo.internal.example.test/api/v1
+export TABELLIO_REMOTE_CREDENTIAL_FILE=$HOME/.config/tabellio/forgejo-token
+export TABELLIO_REMOTE_NAME=forgejo
 ```
 
 Run `tabellio-validate` from any trusted worker. The runner checks out the exact revision in an isolated worktree, executes only argv arrays committed in `tabellio.validation.json`, bounds captured output, and writes the result to `refs/tabellio/validations`.
@@ -84,7 +85,7 @@ node scripts/tabellio-control-ref.mjs plan \
   --operation publish \
   --remote forgejo \
   --repo-id example/repository \
-  --token-file "$TABELLIO_FORGE_TOKEN_FILE" \
+  --token-file "$TABELLIO_REMOTE_CREDENTIAL_FILE" \
   --out /tmp/control-ref-intent.json
 ```
 

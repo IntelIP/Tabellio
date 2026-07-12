@@ -1,13 +1,56 @@
 export function validatePlatformConfig(value) {
   object(value, "platform");
+  if (value.schemaVersion === "tabellio-platform/v0.1") return validateV01(value);
+  if (value.schemaVersion === "tabellio-platform/v0.2") return validateV02(value);
+  throw new Error("platform.schemaVersion must be tabellio-platform/v0.1 or tabellio-platform/v0.2.");
+}
+
+export function platformRemoteRepository(value) {
+  validatePlatformConfig(value);
+  if (value.schemaVersion === "tabellio-platform/v0.2") return value.remoteRepository;
+  return {
+    provider: value.canonicalForge.provider,
+    remoteName: "forgejo",
+    publicSurface: "forge-compatibility",
+    gitUrlEnv: value.canonicalForge.urlEnv,
+    apiUrlEnv: value.canonicalForge.apiUrlEnv,
+    credentialFileEnv: value.canonicalForge.tokenFileEnv,
+  };
+}
+
+function validateV01(value) {
   exact(value, ["schemaVersion", "canonicalForge", "git", "ledger", "validation", "reviews", "transition"], "platform");
-  equals(value.schemaVersion, "tabellio-platform/v0.1", "platform.schemaVersion");
   exactObject(value.canonicalForge, {
     provider: "forgejo",
     urlEnv: "TABELLIO_FORGE_URL",
     apiUrlEnv: "TABELLIO_FORGE_API_URL",
     tokenFileEnv: "TABELLIO_FORGE_TOKEN_FILE",
   }, "platform.canonicalForge");
+  validateSharedConfig(value);
+  exactObject(value.reviews, { provider: "forgejo", stateRef: "refs/tabellio/reviews" }, "platform.reviews");
+  object(value.transition, "platform.transition");
+  exact(value.transition, ["codeStorage", "runtimeRequired"], "platform.transition");
+  string(value.transition.codeStorage, "platform.transition.codeStorage");
+  equals(value.transition.runtimeRequired, false, "platform.transition.runtimeRequired");
+  return value;
+}
+
+function validateV02(value) {
+  exact(value, ["schemaVersion", "remoteRepository", "git", "ledger", "validation", "reviews"], "platform");
+  object(value.remoteRepository, "platform.remoteRepository");
+  exact(value.remoteRepository, ["provider", "remoteName", "publicSurface", "gitUrlEnv", "apiUrlEnv", "credentialFileEnv"], "platform.remoteRepository");
+  identifier(value.remoteRepository.provider, "platform.remoteRepository.provider");
+  remoteName(value.remoteRepository.remoteName, "platform.remoteRepository.remoteName");
+  equals(value.remoteRepository.publicSurface, "git-only", "platform.remoteRepository.publicSurface");
+  string(value.remoteRepository.gitUrlEnv, "platform.remoteRepository.gitUrlEnv");
+  string(value.remoteRepository.apiUrlEnv, "platform.remoteRepository.apiUrlEnv");
+  string(value.remoteRepository.credentialFileEnv, "platform.remoteRepository.credentialFileEnv");
+  validateSharedConfig(value);
+  exactObject(value.reviews, { provider: "tabellio", stateRef: "refs/tabellio/reviews" }, "platform.reviews");
+  return value;
+}
+
+function validateSharedConfig(value) {
   object(value.git, "platform.git");
   exact(value.git, ["stackManager", "codeRef", "controlRefs"], "platform.git");
   equals(value.git.stackManager, "git-spice", "platform.git.stackManager");
@@ -24,12 +67,6 @@ export function validatePlatformConfig(value) {
   equals(value.validation.runner, "tabellio-validate", "platform.validation.runner");
   string(value.validation.manifest, "platform.validation.manifest");
   equals(value.validation.resultRef, "refs/tabellio/validations", "platform.validation.resultRef");
-  exactObject(value.reviews, { provider: "forgejo", stateRef: "refs/tabellio/reviews" }, "platform.reviews");
-  object(value.transition, "platform.transition");
-  exact(value.transition, ["codeStorage", "runtimeRequired"], "platform.transition");
-  string(value.transition.codeStorage, "platform.transition.codeStorage");
-  equals(value.transition.runtimeRequired, false, "platform.transition.runtimeRequired");
-  return value;
 }
 
 function exactObject(value, expected, path) {
@@ -54,6 +91,16 @@ function array(value, path) {
 
 function string(value, path) {
   if (typeof value !== "string" || value.trim() === "") throw new Error(`${path} must be a non-empty string.`);
+}
+
+function identifier(value, path) {
+  string(value, path);
+  if (!/^[a-z][a-z0-9-]*$/.test(value)) throw new Error(`${path} must be a lowercase provider identifier.`);
+}
+
+function remoteName(value, path) {
+  string(value, path);
+  if (!/^[A-Za-z0-9._-]+$/.test(value)) throw new Error(`${path} must be a valid Git remote name.`);
 }
 
 function equals(value, expected, path) {

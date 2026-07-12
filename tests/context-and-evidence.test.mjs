@@ -122,7 +122,7 @@ test("capture CLI hashes Windows local origin paths", async (t) => {
     "--head", "refs/heads/feature",
     "--run-id", "run-private-origin",
     "--out", contextPath,
-  ]);
+  ], { TABELLIO_REMOTE_NAME: "origin" });
   const packet = JSON.parse(await readFile(contextPath, "utf8"));
   assert.match(packet.repository.id, /^remote\/[0-9a-f]{16}$/);
   assert.doesNotMatch(JSON.stringify(packet), /Users|secret-product/);

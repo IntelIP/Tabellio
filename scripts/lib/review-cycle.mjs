@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { canonicalChangeRequest } from "./change-request.mjs";
 import { runGit } from "./git-process.mjs";
 import { digestObject } from "./stack-operation.mjs";
 import { latestValidationResult } from "./validation-runner.mjs";
@@ -11,11 +12,13 @@ const MAX_AGENT_FINDINGS = 1_000;
 const MAX_TEXT_BODY = 64 * 1024;
 
 export class ReviewCycleManager {
-  constructor({ store, ledger, validationLedger = null, provider, repositoryId, owner, repo }) {
+  constructor({ store, ledger, validationLedger = null, provider, providerId = null, repositoryId, owner, repo }) {
     this.store = store;
     this.ledger = ledger;
     this.validationLedger = validationLedger;
     this.provider = provider;
+    this.providerId = provider?.providerId ?? providerId;
+    providerIdentifier(this.providerId, "providerId");
     this.repositoryId = repositoryId;
     this.owner = owner;
     this.repo = repo;
@@ -41,16 +44,25 @@ export class ReviewCycleManager {
     if (localValidation && localValidation.repository.id !== this.repositoryId) {
       throw new Error("Local validation repository does not match the review cycle.");
     }
+    const canonical = canonicalChangeRequest({
+      repositoryId: this.repositoryId,
+      providerId: this.providerId,
+      value: changeRequest,
+    });
     const checks = mergeChecks(forgeChecks, localValidation);
     const record = await this.#read(number);
     const existing = record.value;
     if (existing) validateReviewCycle(existing);
     const timestamp = now.toISOString();
     const feedback = mergeProviderFeedback(existing?.feedback ?? [], [
-      ...reviews.map((value) => reviewFeedback(value, timestamp)),
-      ...reviewComments.map(reviewCommentFeedback),
-      ...issueComments.map(issueCommentFeedback),
-      ...checks.statuses.filter((status) => ["error", "failure", "failed"].includes(status.state)).map((value) => checkFeedback(value, timestamp)),
+      ...reviews.map((value) => reviewFeedback(value, timestamp, this.providerId)),
+      ...reviewComments.map((value) => reviewCommentFeedback(value, this.providerId)),
+      ...issueComments.map((value) => issueCommentFeedback(value, this.providerId)),
+      ...checks.statuses.filter((status) => ["error", "failure", "failed"].includes(status.state)).map((value) => checkFeedback(
+        value,
+        timestamp,
+        value.id.startsWith("validation:") ? "tabellio" : this.providerId,
+      )),
     ], timestamp);
     const fixes = await Promise.all((existing?.fixes ?? []).map((fix) => this.#reconcileFix(
       fix,
@@ -62,20 +74,20 @@ export class ReviewCycleManager {
       schemaVersion: REVIEW_CYCLE_SCHEMA_VERSION,
       id: existing?.id ?? cycleId(this.repositoryId, this.owner, this.repo, number),
       repository: { id: this.repositoryId },
-      provider: { id: "forgejo", owner: this.owner, repo: this.repo },
+      provider: { id: this.providerId, owner: this.owner, repo: this.repo },
       changeRequest: {
-        id: changeRequest.id,
-        number: changeRequest.number,
-        url: changeRequest.webUrl,
-        title: changeRequest.title,
-        state: changeRequest.state,
-        draft: changeRequest.draft,
-        mergeable: changeRequest.mergeable,
-        headBranch: changeRequest.source.branch,
-        headCommit: changeRequest.source.commit,
-        baseBranch: changeRequest.target.branch,
-        baseCommit: changeRequest.target.commit,
-        updatedAt: changeRequest.updatedAt,
+        id: canonical.id,
+        number: canonical.backend.number,
+        url: canonical.backend.url,
+        title: canonical.title,
+        state: canonical.state,
+        draft: canonical.draft,
+        mergeable: canonical.mergeable,
+        headBranch: canonical.source.branch,
+        headCommit: canonical.source.commit,
+        baseBranch: canonical.target.branch,
+        baseCommit: canonical.target.commit,
+        updatedAt: canonical.updatedAt,
       },
       status: "needs_triage",
       round: existing ? existing.round + (headChanged ? 1 : 0) : 1,
@@ -195,7 +207,7 @@ export class ReviewCycleManager {
 
   async #read(number) {
     positiveInteger(number, "number");
-    return this.ledger.read(cyclePath(this.repositoryId, this.owner, this.repo, number));
+    return this.ledger.read(cyclePath(this.repositoryId, this.providerId, this.owner, this.repo, number));
   }
 
   async #required(number) {
@@ -209,13 +221,13 @@ export class ReviewCycleManager {
     cycle.status = deriveStatus(cycle);
     cycle.integrity = { algorithm: "sha256", digest: cycleDigest(cycle) };
     validateReviewCycle(cycle);
-    const path = cyclePath(this.repositoryId, this.owner, this.repo, cycle.changeRequest.number);
+    const path = cyclePath(this.repositoryId, this.providerId, this.owner, this.repo, cycle.changeRequest.number);
     const written = await this.ledger.write(path, cycle, { expectedVersion });
     return { cycle, path, version: written.version };
   }
 
   #requireProvider() {
-    if (!this.provider) throw new Error("Review sync requires a forge provider.");
+    if (!this.provider) throw new Error("Review sync requires a remote repository provider.");
   }
 
   async #requireCheckpoint(baseCommit, fixCommit, checkpointId) {
@@ -267,7 +279,7 @@ export function validateReviewCycle(value) {
   requiredString(value.repository.id, "repository.id");
   object(value.provider, "provider");
   exactKeys(value.provider, ["id", "owner", "repo"], "provider");
-  equals(value.provider.id, "forgejo", "provider.id");
+  providerIdentifier(value.provider.id, "provider.id");
   requiredString(value.provider.owner, "provider.owner");
   requiredString(value.provider.repo, "provider.repo");
   validateChangeRequest(value.changeRequest);
@@ -366,10 +378,11 @@ function mergeProviderFeedback(existing, incoming, timestamp) {
   return merged.sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function reviewFeedback(value, timestamp) {
+function reviewFeedback(value, timestamp, source) {
   const requestedChanges = ["request_changes", "changes_requested"].includes(value.state);
   const approved = value.state === "approved";
   return feedback({
+    source,
     id: `review:${value.id}`,
     providerId: value.id,
     kind: "review",
@@ -385,8 +398,9 @@ function reviewFeedback(value, timestamp) {
   });
 }
 
-function reviewCommentFeedback(value) {
+function reviewCommentFeedback(value, source) {
   return feedback({
+    source,
     id: `review-comment:${value.id}`,
     providerId: value.id,
     kind: "review-comment",
@@ -404,8 +418,9 @@ function reviewCommentFeedback(value) {
   });
 }
 
-function issueCommentFeedback(value) {
+function issueCommentFeedback(value, source) {
   return feedback({
+    source,
     id: `issue-comment:${value.id}`,
     providerId: value.id,
     kind: "issue-comment",
@@ -420,8 +435,9 @@ function issueCommentFeedback(value) {
   });
 }
 
-function checkFeedback(value, timestamp) {
+function checkFeedback(value, timestamp, source) {
   return feedback({
+    source,
     id: `check:${value.id}`,
     providerId: value.id,
     kind: "check",
@@ -437,6 +453,7 @@ function checkFeedback(value, timestamp) {
 }
 
 function feedback({
+  source,
   id,
   providerId,
   kind,
@@ -455,7 +472,7 @@ function feedback({
 }) {
   return {
     id,
-    source: "forgejo",
+    source,
     providerId,
     kind,
     author,
@@ -516,8 +533,8 @@ function cycleId(repositoryId, owner, repo, number) {
   return `review-${createHash("sha256").update(`${repositoryId}\0${owner}\0${repo}\0${number}`).digest("hex").slice(0, 24)}`;
 }
 
-function cyclePath(repositoryId, owner, repo, number) {
-  return `cycles/forgejo-${number}-${createHash("sha256").update(`${repositoryId}\0${owner}\0${repo}`).digest("hex").slice(0, 16)}.json`;
+function cyclePath(repositoryId, providerId, owner, repo, number) {
+  return `cycles/${providerId}-${number}-${createHash("sha256").update(`${repositoryId}\0${owner}\0${repo}`).digest("hex").slice(0, 16)}.json`;
 }
 
 function event(type, actor, at, detail) {
@@ -550,7 +567,7 @@ function validateFeedback(value, path) {
   object(value, path);
   exactKeys(value, ["id", "source", "providerId", "kind", "author", "title", "body", "path", "line", "commit", "severity", "providerState", "disposition", "resolution", "fixId", "createdAt", "updatedAt"], path);
   requiredString(value.id, `${path}.id`);
-  member(value.source, ["forgejo", "agent"], `${path}.source`);
+  providerIdentifier(value.source, `${path}.source`, { allowAgent: true });
   requiredString(value.providerId, `${path}.providerId`);
   member(value.kind, ["review", "review-comment", "issue-comment", "check", "agent-finding"], `${path}.kind`);
   if (value.author !== null) requiredString(value.author, `${path}.author`);
@@ -639,6 +656,12 @@ function member(value, values, path) {
 
 function equals(value, expected, path) {
   if (value !== expected) throw new Error(`${path} must be ${JSON.stringify(expected)}.`);
+}
+
+function providerIdentifier(value, path, { allowAgent = false } = {}) {
+  requiredString(value, path);
+  if (allowAgent && value === "agent") return;
+  if (!/^[a-z][a-z0-9-]*$/.test(value)) throw new Error(`${path} must be a lowercase provider identifier.`);
 }
 
 function oid(value, path) {

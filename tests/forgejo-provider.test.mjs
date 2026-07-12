@@ -88,6 +88,9 @@ test("Forgejo provider normalizes repositories, change requests, reviews, commen
   });
   assert.ok(requests.every((request) => request.authorization === "token secret-token"));
   assert.equal(requests.find((request) => request.path.endsWith("/pulls")).query.limit, "50");
+
+  const apiUrlProvider = new ForgejoProvider({ baseUrl: `${fixture.baseUrl}/api/v1`, token: "secret-token" });
+  assert.equal(await apiUrlProvider.version(), "15.0.3+gitea-1.22.0");
 });
 
 test("Forgejo provider rejects credential-bearing URLs and redacts tokens from failures", async (t) => {
@@ -111,14 +114,51 @@ test("Forgejo provider rejects credential-bearing URLs and redacts tokens from f
   );
 });
 
-function repository() {
+test("Forgejo remote provider provisions, archives, and exposes standard Git remotes", async (t) => {
+  const requests = [];
+  const fixture = await startServer(async (request, response) => {
+    const body = await requestJson(request);
+    requests.push({ method: request.method, path: request.url, body });
+    if (request.method === "POST" && request.url === "/api/v1/orgs/acme/repos") {
+      return json(response, repository());
+    }
+    if (request.method === "PATCH" && request.url === "/api/v1/repos/acme/project") {
+      return json(response, repository({ archived: true }));
+    }
+    if (request.method === "GET" && request.url === "/api/v1/repos/acme/project") {
+      return json(response, repository());
+    }
+    return json(response, { message: "not found" }, 404);
+  });
+  t.after(fixture.close);
+  const provider = new ForgejoProvider({ baseUrl: fixture.baseUrl, token: "secret-token" });
+  assert.equal(provider.providerId, "forgejo");
+
+  const created = await provider.createRepository({ owner: "acme", name: "project", private: true, defaultBranch: "main" });
+  assert.equal(created.fullName, "acme/project");
+  const createRequest = requests.find((request) => request.method === "POST");
+  assert.deepEqual(createRequest.body, { name: "project", private: true, default_branch: "main", auto_init: false });
+
+  const remote = await provider.gitRemote({ owner: "acme", repo: "project" });
+  assert.deepEqual(remote, {
+    provider: "forgejo",
+    repositoryId: "11",
+    cloneUrl: `${fixture.baseUrl}/acme/project.git`,
+    defaultBranch: "main",
+  });
+  const archived = await provider.archiveRepository({ owner: "acme", repo: "project" });
+  assert.equal(archived.archived, true);
+  assert.deepEqual(requests.find((request) => request.method === "PATCH").body, { archived: true });
+});
+
+function repository({ archived = false } = {}) {
   return {
     id: 11,
     owner: { login: "acme" },
     name: "project",
     full_name: "acme/project",
     private: true,
-    archived: false,
+    archived,
     default_branch: "main",
     html_url: "__BASE__/acme/project",
     clone_url: "__BASE__/acme/project.git",
@@ -220,4 +260,10 @@ async function startServer(handler) {
 function json(response, value, status = 200) {
   response.writeHead(status, { "content-type": "application/json" });
   response.end(JSON.stringify(value));
+}
+
+async function requestJson(request) {
+  const chunks = [];
+  for await (const chunk of request) chunks.push(chunk);
+  return chunks.length === 0 ? null : JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }

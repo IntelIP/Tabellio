@@ -5,11 +5,6 @@
   "type": "module",
   "license": "Apache-2.0",
   "author": "IntelIP",
-  "homepage": "https://github.com/IntelIP/Tabellio#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/IntelIP/Tabellio.git"
-  },
   "bin": {
     "tabellio-run": "scripts/tabellio-run.mjs",
     "tabellio-stack": "scripts/tabellio-stack.mjs",
@@ -19,9 +14,6 @@
     "tabellio-control-ref": "scripts/tabellio-control-ref.mjs",
     "tabellio-ledger": "scripts/tabellio-ledger.mjs",
     "tabellio-forge": "scripts/tabellio-forge.mjs"
-  },
-  "bugs": {
-    "url": "https://github.com/IntelIP/Tabellio/issues"
   },
   "private": false,
   "publishConfig": {

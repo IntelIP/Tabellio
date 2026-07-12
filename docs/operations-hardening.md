@@ -19,7 +19,7 @@ Tabellio keeps code and control state in standard Git objects, but production sa
 
 ## Canonical And Mirror Repositories
 
-Forgejo is the canonical merge authority. A secondary Git host may store a mirror, but must receive the exact canonical main commit by fast-forward only:
+Configured remote repository is canonical merge authority. Current backend is Forgejo. A secondary Git host may store a mirror, but must receive the exact canonical main commit by fast-forward only:
 
 1. Validate the exact Forgejo change-request head.
 2. Merge through the approved git-spice operation.

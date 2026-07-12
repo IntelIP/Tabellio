@@ -1,6 +1,6 @@
 # Durable Review And Fix Loop
 
-Tabellio keeps review state in standard Git, not in a GitHub-only database. Forgejo remains the visible collaboration surface. The durable control-plane record lives on `refs/tabellio/reviews` as immutable JSON ledger commits updated with compare-and-swap.
+Tabellio keeps review state in standard Git. Tabellio is the agent-facing review surface; Forgejo remains a private backend adapter. Durable control-plane records live on `refs/tabellio/reviews` as immutable JSON ledger commits updated with compare-and-swap.
 
 ## State Flow
 
