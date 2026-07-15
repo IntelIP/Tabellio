@@ -56,18 +56,21 @@ export class NativeGitStore extends RepositoryStore {
     return result.stdout.trim();
   }
 
+  // fallow-ignore-next-line unused-class-member
   async gitConfig(key) {
     requiredString(key, "config key");
     const result = await this.#git(["config", "--get", key], [0, 1]);
     return result.exitCode === 0 ? result.stdout.trim() : null;
   }
 
+  // fallow-ignore-next-line unused-class-member
   async listFiles(revision) {
     const commit = await this.resolveRef(revision);
     const result = await this.#git(["ls-tree", "-rz", "--name-only", commit, "--"]);
     return splitNulls(result.stdout).sort();
   }
 
+  // fallow-ignore-next-line unused-class-member
   async getDiff(baseRevision, headRevision) {
     const [baseCommit, headCommit] = await Promise.all([
       this.resolveRef(baseRevision),
@@ -95,12 +98,14 @@ export class NativeGitStore extends RepositoryStore {
     return branch;
   }
 
+  // fallow-ignore-next-line unused-class-member
   async hasRef(ref) {
     validateFullRef(ref, "ref", "refs/");
     const result = await this.#git(["show-ref", "--verify", "--quiet", ref], [0, 1]);
     return result.exitCode === 0;
   }
 
+  // fallow-ignore-next-line unused-class-member
   async createWorkspace({ path, branch, startPoint }) {
     await this.validateBranch(branch);
     const workspacePath = await this.#validateWorkspacePath(path);
@@ -109,6 +114,7 @@ export class NativeGitStore extends RepositoryStore {
     return { path: workspacePath, branch, startCommit };
   }
 
+  // fallow-ignore-next-line unused-class-member
   async removeWorkspace({ path, force = false }) {
     const workspacePath = await this.#validateWorkspacePath(path);
     const args = ["worktree", "remove"];
@@ -118,6 +124,7 @@ export class NativeGitStore extends RepositoryStore {
     return { path: workspacePath, removed: true };
   }
 
+  // fallow-ignore-next-line unused-class-member
   async readNote(revision, { notesRef = "refs/notes/tabellio/context" } = {}) {
     validateFullRef(notesRef, "notesRef", "refs/notes/");
     await this.#git(["check-ref-format", notesRef]);
@@ -131,6 +138,7 @@ export class NativeGitStore extends RepositoryStore {
     throw new Error(`Unable to read Git note from ${notesRef}: ${result.stderr.trim()}`);
   }
 
+  // fallow-ignore-next-line unused-class-member
   async writeNote(revision, { notesRef = "refs/notes/tabellio/context", note }) {
     validateFullRef(notesRef, "notesRef", "refs/notes/");
     requiredString(note, "note");
@@ -154,6 +162,7 @@ export class NativeGitStore extends RepositoryStore {
     return result.exitCode === 0;
   }
 
+  // fallow-ignore-next-line unused-class-member
   async previewMerge({ base, head }) {
     const [baseCommit, headCommit] = await Promise.all([this.resolveRef(base), this.resolveRef(head)]);
     const mergeBaseResult = await this.#git(["merge-base", baseCommit, headCommit]);
@@ -201,6 +210,7 @@ export class NativeGitStore extends RepositoryStore {
     return { ref, oldCommit: expectedOldCommit, newCommit };
   }
 
+  // fallow-ignore-next-line unused-class-member
   async fastForwardRef({ ref, newRevision, expectedOldCommit }) {
     validateFullRef(ref, "ref", "refs/heads/");
     if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(expectedOldCommit ?? "")) {

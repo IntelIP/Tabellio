@@ -110,6 +110,7 @@ export class ApprovedControlRefTransport {
     });
   }
 
+  // fallow-ignore-next-line unused-class-member
   async execute({ intent, approval, repositoryId, now = new Date() }) {
     validateControlRefIntent(intent);
     validateControlRefApproval(approval, intent, { now });

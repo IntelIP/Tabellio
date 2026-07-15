@@ -37,6 +37,7 @@ export class ApprovedGitSpiceOperations {
     });
   }
 
+  // fallow-ignore-next-line unused-class-member
   async execute({ intent, approval, repositoryId = null, now = new Date() }) {
     validateStackOperationIntent(intent);
     validateStackOperationApproval(approval, intent, { now });

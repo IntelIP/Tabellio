@@ -117,4 +117,4 @@ node scripts/write-tabellio-evidence-envelope.mjs \
 
 ## Boundary
 
-This schema is simpler than SLSA provenance or in-toto link metadata. Future versions can export to those formats, but v0.1.0 does not claim compliance.
+This schema is simpler than SLSA provenance or in-toto link metadata. Future versions can export to those formats, but Tabellio does not claim compliance.

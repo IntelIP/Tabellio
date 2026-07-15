@@ -33,6 +33,7 @@ export class EntireLedgerProvider extends LedgerProvider {
     return match[1];
   }
 
+  // fallow-ignore-next-line unused-class-member
   async snapshot({ repositoryId, baseRevision, headRevision, capturedAt = new Date().toISOString() }) {
     requiredString(repositoryId, "repositoryId");
     const [version, baseCommit, headCommit] = await Promise.all([
@@ -87,6 +88,7 @@ export class EntireLedgerProvider extends LedgerProvider {
     return envelope;
   }
 
+  // fallow-ignore-next-line unused-class-member
   contextReferences(snapshot) {
     return checkpointReferences(snapshot);
   }

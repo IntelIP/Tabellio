@@ -30,6 +30,7 @@ export class GitJsonLedger {
     return result.exitCode === 0 ? result.stdout.trim() : null;
   }
 
+  // fallow-ignore-next-line unused-class-member
   async read(path) {
     validateLedgerPath(path);
     const version = await this.version();
@@ -52,6 +53,7 @@ export class GitJsonLedger {
     }
   }
 
+  // fallow-ignore-next-line unused-class-member
   async list(prefix = "") {
     if (prefix !== "") validateLedgerPath(prefix.replace(/\/$/, ""));
     const version = await this.version();
@@ -65,6 +67,7 @@ export class GitJsonLedger {
     };
   }
 
+  // fallow-ignore-next-line unused-class-member
   async write(path, value, { expectedVersion, replacePath = null }) {
     validateLedgerPath(path);
     if (replacePath !== null) {

@@ -7,6 +7,7 @@ export class StackManager {
   }
 
   /** @param {{repositoryId: string, capturedAt?: string}} options */
+  // fallow-ignore-next-line unused-class-member
   async snapshot(_options) {
     throw new Error("StackManager.snapshot must be implemented.");
   }
