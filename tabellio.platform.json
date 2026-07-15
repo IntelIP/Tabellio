@@ -13,6 +13,8 @@
   "workflow": {
     "stackManager": "git-spice",
     "controlState": "external",
+    "controlProvider": "github",
+    "controlRemoteName": "control",
     "publishControlRefsToCodeStorage": false,
     "controlRefs": [
       "refs/tabellio/reviews",

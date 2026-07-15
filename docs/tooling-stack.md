@@ -23,7 +23,7 @@ The main idea: agentic Git should be built around more than a patch. It should p
 | Tool | Tag | Why It Matters |
 | --- | --- | --- |
 | [Entire](https://entire.io/) | `entire` | Checkpoint and session ledger for agent-assisted work, with checkpoint metadata stored in Git |
-| [git-spice](https://abhinav.github.io/git-spice/) | `git-spice` | Offline-first stacked branch and change-request workflow with host-specific adapters |
+| [git-spice](https://abhinav.github.io/git-spice/) | `git-spice` | Offline-first stacked branch and GitHub pull-request workflow |
 | [OpenAI Codex](https://openai.com/codex/) | `codex` | Coding and review agent used to produce or inspect changes |
 
 Entire is required by default for context capture. Legacy Git-note capture remains an explicit migration mode. All ledger reads stay local through the installed Entire CLI.
@@ -70,11 +70,11 @@ Included:
 - evidence JSON envelope
 - default-deny external-action policy
 - local writer and validators
-- provider-neutral change-request template and docs
+- GitHub pull-request template and docs
 - read-only GitHub provider for repositories, pull requests, reviews, comments, commit statuses, and check runs
 - approval-gated git-spice submit, update, sync, restack, and merge operations with one-use receipts
-- Git-native review ledger with GitHub feedback, provider-neutral agent findings, triage, fixes, and readiness state
-- provider-neutral exact-commit validation runner with durable results on `refs/tabellio/validations`
+- Git-native review ledger with GitHub feedback, agent findings, triage, fixes, and readiness state
+- GitHub-bound exact-commit validation runner with durable results on `refs/tabellio/validations`
 - explicit GitHub code-storage and external control-state contract
 - approval-gated fast-forward transport for review, validation, and Entire refs
 
@@ -91,7 +91,7 @@ Not included yet:
 
 | Integration | Evidence Field |
 | --- | --- |
-| GitHub repository or branch id | adapter metadata outside the provider-neutral core |
+| GitHub repository or branch id | GitHub identity bound to the context and evidence records |
 | Entire checkpoint id | `tabellio-ledger/v0.1` and context `checkpoints[]` |
 | git-spice branch parent or change-request id | `tabellio-stack/v0.1` snapshot |
 | Codex review result | `checks[]` and `artifacts[]` |
@@ -117,7 +117,7 @@ This repository disables automatic checkpoint pushes to `origin`. Commit trailer
 
 GitHub receives ordinary code branches, tags, and the minimum pull-request metadata needed for human accountability. `refs/tabellio/reviews`, `refs/tabellio/validations`, and `refs/heads/entire/checkpoints/v1` remain external. The control-ref transport rejects `origin` even when a caller supplies it explicitly.
 
-The boundary is contractual, not only documentary: `tabellio.platform.json`, its JSON Schema, runtime validation, and transport tests all fail closed on provider or publication-policy drift. See [GitHub code-storage boundary](github-code-storage-boundary.md).
+The boundary is contractual, not only documentary: `tabellio.platform.json`, its JSON Schema, runtime validation, and transport tests all fail closed on GitHub or publication-policy drift. See [GitHub code-storage boundary](github-code-storage-boundary.md).
 
 ## GitHub Review Adapter
 

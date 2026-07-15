@@ -40,7 +40,7 @@ node scripts/tabellio-review.mjs sync \
   --actor review-sync-agent
 ```
 
-Sync imports GitHub reviews, inline review comments, issue comments, commit statuses, check runs, and the newest provider-neutral Tabellio validation for the PR head. `GITHUB_TOKEN` may replace `--token-file`; `GITHUB_API_URL` or `--api-url` may target GitHub Enterprise Server. Missing provider items are retained as stale evidence rather than silently deleted. A PR with no validation remains `validating`.
+Sync imports GitHub reviews, inline review comments, issue comments, commit statuses, check runs, and the newest Tabellio validation for the PR head. `GITHUB_TOKEN` may replace `--token-file`; `GITHUB_API_URL` or `--api-url` may target GitHub Enterprise Server. Missing GitHub items are retained as stale evidence rather than silently deleted. A PR with no validation remains `validating`.
 
 ## Import A Codex Review
 
@@ -85,11 +85,11 @@ git-spice restacks rewrite commit IDs. Tabellio retains `originalCommit` and rem
 
 Ledger writes create normal Git blobs, trees, and commits without changing the working tree. Concurrent writers use compare-and-swap on `refs/tabellio/reviews`; stale writers fail instead of overwriting newer state. The same implementation works in normal and bare repositories. The latest cycle retains the newest 100 audit events; older versions remain recoverable from the ledger's Git commit history.
 
-To share the ledger, configure a separate external control-state remote, for example:
+To share the ledger, configure a separate private GitHub repository as the control-state remote, for example:
 
 ```bash
 git push "$TABELLIO_CONTROL_REMOTE" refs/tabellio/reviews:refs/tabellio/reviews
 git fetch "$TABELLIO_CONTROL_REMOTE" refs/tabellio/reviews:refs/tabellio/reviews
 ```
 
-The control-state remote must not be `origin`. Publishing that ref is a remote write and uses the same explicit approval boundary as other Git transport mutations.
+The private GitHub control remote must not be `origin`. Publishing that ref is a remote write and uses the same explicit approval boundary as other Git transport mutations.

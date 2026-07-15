@@ -6,23 +6,23 @@ All notable changes to Tabellio are recorded here.
 
 ### Added
 
-- Provider-neutral exact-commit validation runner with committed argv manifests and no shell execution.
+- GitHub-bound exact-commit validation runner with committed argv manifests and no shell execution.
 - Bounded SHA-256 output evidence, detached worktree cleanup, and durable results on `refs/tabellio/validations`.
 - Local validation results integrated into durable review readiness.
 - Git-native JSON ledger on compare-and-swap refs for durable control-plane state.
-- Durable review cycles covering GitHub feedback, provider-neutral agent findings, triage, checks, fixes, and readiness.
+- Durable review cycles covering GitHub feedback, agent findings, triage, checks, fixes, and readiness.
 - Entire-checkpoint-bound fix records with commit remapping across git-spice restacks.
 - Approval-gated git-spice submit, update, sync, restack, and merge operations.
 - Integrity-bound operation intents, short-lived approvals, one-use receipts, and branch-set race checks.
 - File-backed GitHub API and Git HTTPS authentication without credentials in remote URLs or command arguments.
 - Read-only GitHub provider for repository, pull request, review, comment, commit-status, and check-run reads.
 - Mandatory-by-default Entire ledger provider with metadata-only checkpoint export and context binding.
-- Provider-neutral `tabellio-ledger/v0.1` schema, CLI, validator, example, and tests.
-- Read-only git-spice stack adapter with provider-neutral `tabellio-stack/v0.1` snapshots.
+- GitHub workflow `tabellio-ledger/v0.1` schema, CLI, validator, example, and tests.
+- Read-only git-spice stack adapter with GitHub workflow `tabellio-stack/v0.1` snapshots.
 - Stack snapshot schema, validator, CLI, example, and adapter tests.
 - Local agent-run CLI with start, checkpoint, finish, status, and safe promotion commands.
 - Mutable `tabellio-run/v0.1` local state contract and end-to-end lifecycle artifacts.
-- Provider-neutral `RepositoryStore` contract and standard Git provider.
+- `RepositoryStore` contract and standard Git implementation for the GitHub workflow.
 - Bare-repository, contained-worktree, Git-note, merge-preview, and compare-and-swap primitives.
 - Integrity-protected `tabellio-context/v0.1` packet and CLI capture/check commands.
 - Optional evidence-to-context commit binding.
@@ -44,7 +44,7 @@ All notable changes to Tabellio are recorded here.
 
 ### Changed
 
-- Replaced Graphite as the planned stacked-review integration with host-agnostic git-spice.
+- Standardized stacked GitHub pull requests on git-spice.
 - Made GitHub `origin` the canonical code store and thin pull-request shell while keeping agent control state external.
 - Rejected publication or fetching of review, validation, and Entire control refs through the code-storage remote.
 
@@ -62,7 +62,7 @@ Initial public release.
 - Minimal valid evidence fixture.
 - OpenSSF Scorecard workflow.
 - Research grounding, schema reference, and workflow model docs.
-- Agentic tooling stack guide covering Code Storage, Entire, Graphite, GitHub, Codex, and Tabellio boundaries.
+- Agentic tooling stack guide covering Entire, GitHub, Codex, and Tabellio boundaries.
 
 ### Release Gates
 

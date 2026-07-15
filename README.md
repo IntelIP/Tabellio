@@ -10,7 +10,7 @@
 [![Entire](https://img.shields.io/badge/Entire-checkpoint%20ledger-111827)](https://entire.io/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
-Provider-neutral Git context and evidence for agentic development.
+GitHub-native context and evidence for agentic development.
 
 Tabellio gives coding agents a deterministic Git foundation: standard Git repositories, isolated worktrees, immutable commit IDs, merge previews, compare-and-swap ref updates, and context packets tied to the exact diff. GitHub stores code and provides a thin pull-request shell. Tabellio keeps agent transcripts, review state, validation results, and control refs outside that public code-storage boundary.
 
@@ -36,7 +36,7 @@ The native engine runs through the installed `git` executable. It never construc
 | Component | Role |
 | --- | --- |
 | `GitProcess` | Executes argument arrays with prompts disabled and typed failures |
-| `RepositoryStore` | Provider-neutral repository contract |
+| `RepositoryStore` | Repository contract for Tabellio's GitHub-backed workflow |
 | `NativeGitStore` | Reads commits and diffs, manages worktrees, previews merges, and updates refs safely |
 | `WorkspaceManager` | Gives each agent run a contained worktree path |
 | Context packet | Binds task, actor, exact commits, changed files, checkpoints, and merge status |
@@ -61,10 +61,10 @@ AI-assisted pull requests should not depend on reviewer trust alone. Tabellio gi
 | Validation | `tabellio-validate` on any trusted worker | Runs an exact committed command manifest and stores results on a Git ref |
 | Evidence contract | [JSON Schema](https://json-schema.org/) | Validates the evidence envelope and external-action policy |
 | Code storage | [GitHub](https://github.com/) | Stores code refs and tags; provides a thin pull-request shell |
-| Stacked review | [git-spice](https://abhinav.github.io/git-spice/) | Host-agnostic stack engine for small dependent change requests |
+| Stacked review | [git-spice](https://abhinav.github.io/git-spice/) | Stack engine for small dependent GitHub pull requests |
 | Checkpoint ledger | [Entire](https://entire.io/) and [Entire CLI](https://github.com/entireio/cli) | Required default for agent session and checkpoint context |
 | Git substrate | Standard Git CLI, bare repositories, and worktrees | Stores repositories, branches, commits, patches, and agent-created code state |
-| Agent review | [OpenAI Codex](https://openai.com/codex/) | Produces provider-neutral findings imported into the durable review ledger |
+| Agent review | [OpenAI Codex](https://openai.com/codex/) | Produces findings imported into the durable GitHub review ledger |
 | Prior art | [SLSA](https://slsa.dev/) and [in-toto](https://in-toto.io/) | Inspiration for provenance and supply-chain evidence, without a compliance claim |
 
 `origin` is the canonical GitHub code remote. Entire is the required checkpoint ledger; git-spice manages stacks; Tabellio owns validation and durable review state. Private control refs are external state and are rejected when their destination is `origin`.
@@ -101,7 +101,7 @@ npm run tabellio:platform:check
 node scripts/tabellio-validate.mjs run --repo . --commit HEAD --manifest tabellio.validation.json
 ```
 
-Keep `origin` limited to ordinary code branches and tags. Configure a separate authenticated Git remote before publishing control refs. The transport refuses to target `origin`.
+Keep `origin` limited to ordinary code branches and tags. Configure a separate private GitHub repository under another remote name before publishing control refs. The transport refuses to target `origin`.
 
 Validate the bundled fixture:
 
@@ -118,7 +118,7 @@ node scripts/check-tabellio-evidence-envelope.mjs --evidence tabellio-pr-evidenc
 node scripts/check-tabellio-external-actions.mjs --evidence tabellio-pr-evidence.json
 ```
 
-Capture provider-neutral context first, then bind evidence to it:
+Capture GitHub-bound context first, then bind evidence to it:
 
 ```bash
 node scripts/capture-tabellio-context.mjs \
@@ -195,7 +195,7 @@ The external-action checker fails when an action is marked `attempted: true` wit
 - [Agent run lifecycle](docs/agent-run-lifecycle.md)
 - [Approved stack operations](docs/stack-operations.md)
 - [Durable review and fix loop](docs/review-loop.md)
-- [Provider-neutral validation](docs/validation-runner.md)
+- [Exact-commit validation](docs/validation-runner.md)
 - [Operations hardening](docs/operations-hardening.md)
 - [Workflow model](docs/workflow-model.md)
 - [Native Git foundation](docs/native-git-foundation.md)

@@ -20,6 +20,8 @@ export function validatePlatformConfig(value) {
   exactObject(value.workflow, {
     stackManager: "git-spice",
     controlState: "external",
+    controlProvider: "github",
+    controlRemoteName: "control",
     publishControlRefsToCodeStorage: false,
   }, "platform.workflow", ["controlRefs"]);
   exactSet(value.workflow.controlRefs, CONTROL_REFS, "platform.workflow.controlRefs");

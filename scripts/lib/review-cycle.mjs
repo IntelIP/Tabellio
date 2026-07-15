@@ -499,7 +499,7 @@ function mergeChecks(providerChecks, localValidation) {
     id: `validation:${localValidation.runId}`,
     context: `tabellio/${localValidation.suite.id}`,
     state: localValidation.status === "passed" ? "success" : "failure",
-    description: `Provider-neutral validation ${localValidation.status}.`,
+    description: `Tabellio validation ${localValidation.status}.`,
     targetUrl: null,
     createdAt: localValidation.startedAt,
     updatedAt: localValidation.completedAt,

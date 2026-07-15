@@ -23,20 +23,7 @@ const expiresAt = "2026-07-10T21:01:00.000Z";
 const now = new Date("2026-07-10T20:02:00.000Z");
 
 test("approved git-spice operations execute exact safe argument sets and consume approvals", async (t) => {
-  const fixture = await createFixture();
-  const toolRoot = await mkdtemp(join(tmpdir(), "tabellio-git-spice-write-"));
-  const capturePath = join(toolRoot, "capture.json");
-  const binary = await fakeGitSpice(toolRoot);
-  t.after(() => Promise.all([
-    rm(fixture.root, { recursive: true, force: true }),
-    rm(toolRoot, { recursive: true, force: true }),
-  ]));
-  const operations = await ApprovedGitSpiceOperations.open({
-    repoPath: fixture.seed,
-    stateRoot: join(toolRoot, "receipts"),
-    binary,
-    env: { GITHUB_TOKEN: "secret-token", CAPTURE_PATH: capturePath },
-  });
+  const { capturePath, fixture, operations } = await operationsTestFixture(t, { token: "secret-token" });
   assert.ok(!JSON.stringify(operations).includes("secret-token"));
   const refsDigest = await repositoryRefsDigest(fixture.seed);
 
@@ -94,19 +81,7 @@ test("approved git-spice operations execute exact safe argument sets and consume
 });
 
 test("stack operations fail closed on tampering, expiry, stale heads, and dirty worktrees", async (t) => {
-  const fixture = await createFixture();
-  const toolRoot = await mkdtemp(join(tmpdir(), "tabellio-git-spice-block-"));
-  const binary = await fakeGitSpice(toolRoot);
-  t.after(() => Promise.all([
-    rm(fixture.root, { recursive: true, force: true }),
-    rm(toolRoot, { recursive: true, force: true }),
-  ]));
-  const operations = await ApprovedGitSpiceOperations.open({
-    repoPath: fixture.seed,
-    stateRoot: join(toolRoot, "receipts"),
-    binary,
-    env: { CAPTURE_PATH: join(toolRoot, "capture.json") },
-  });
+  const { fixture, operations } = await operationsTestFixture(t);
   const refsDigest = await repositoryRefsDigest(fixture.seed);
   const intent = createStackOperationIntent({
     operation: "update",
@@ -150,20 +125,7 @@ test("stack operations fail closed on tampering, expiry, stale heads, and dirty 
 });
 
 test("failed execution consumes approval and stores only a safe error", async (t) => {
-  const fixture = await createFixture();
-  const toolRoot = await mkdtemp(join(tmpdir(), "tabellio-git-spice-fail-"));
-  const binary = await fakeGitSpice(toolRoot, { fail: true });
-  t.after(() => Promise.all([
-    rm(fixture.root, { recursive: true, force: true }),
-    rm(toolRoot, { recursive: true, force: true }),
-  ]));
-  const stateRoot = join(toolRoot, "receipts");
-  const operations = await ApprovedGitSpiceOperations.open({
-    repoPath: fixture.seed,
-    stateRoot,
-    binary,
-    env: { GITHUB_TOKEN: "secret-token" },
-  });
+  const { fixture, operations, stateRoot } = await operationsTestFixture(t, { fail: true, token: "secret-token" });
   const refsDigest = await repositoryRefsDigest(fixture.seed);
   const intent = createStackOperationIntent({
     operation: "submit",
@@ -200,6 +162,26 @@ function approvalFor(intent, id) {
     approvedAt,
     expiresAt,
     reason: "Approved for integration testing.",
+  };
+}
+
+async function operationsTestFixture(t, { fail = false, token = null } = {}) {
+  const fixture = await createFixture();
+  const toolRoot = await mkdtemp(join(tmpdir(), "tabellio-git-spice-operation-"));
+  const capturePath = join(toolRoot, "capture.json");
+  const stateRoot = join(toolRoot, "receipts");
+  const binary = await fakeGitSpice(toolRoot, { fail });
+  t.after(() => Promise.all([
+    rm(fixture.root, { recursive: true, force: true }),
+    rm(toolRoot, { recursive: true, force: true }),
+  ]));
+  const env = { CAPTURE_PATH: capturePath };
+  if (token) env.GITHUB_TOKEN = token;
+  return {
+    capturePath,
+    fixture,
+    stateRoot,
+    operations: await ApprovedGitSpiceOperations.open({ repoPath: fixture.seed, stateRoot, binary, env }),
   };
 }
 

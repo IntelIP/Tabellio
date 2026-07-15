@@ -1,6 +1,6 @@
 # Codex Review
 
-Codex review is a provider-neutral review producer. It inspects the diff and evidence, then emits `tabellio-agent-review/v0.1` for the durable review cycle. It does not replace deterministic checks.
+Codex review inspects the GitHub pull-request diff and evidence, then emits `tabellio-agent-review/v0.1` for the durable review cycle. It does not replace deterministic checks.
 
 ## Local Preflight
 

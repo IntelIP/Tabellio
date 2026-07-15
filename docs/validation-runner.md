@@ -1,4 +1,4 @@
-# Provider-Neutral Validation
+# Exact-Commit Validation
 
 Tabellio validation replaces the GitHub Actions runtime dependency with a small local contract. Any trusted worker that has Git, Node.js, the repository, and its declared tools can run the same manifest. Results live in standard Git objects on `refs/tabellio/validations`.
 

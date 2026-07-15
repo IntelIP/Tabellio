@@ -1,6 +1,6 @@
 # Getting Started
 
-Tabellio captures provider-neutral Git context and can attach a machine-readable evidence packet to pull requests. Humans, CI, and coding agents use the same contract.
+Tabellio captures GitHub-bound context and can attach a machine-readable evidence packet to pull requests. Humans, CI, and coding agents use the same contract.
 
 ## Requirements
 
@@ -37,7 +37,7 @@ The snapshot adapter uses documented JSON output and disables change-request sta
 
 ## Configure The Platform
 
-`tabellio.platform.json` makes the operating model explicit: GitHub code storage, git-spice stacks, external Entire checkpoints, external validation, and external review state.
+`tabellio.platform.json` makes the operating model explicit: GitHub code storage, git-spice stacks, and a private GitHub `control` remote for Entire checkpoints, validation, and review state.
 
 ```bash
 npm run tabellio:platform:check
@@ -67,7 +67,7 @@ node scripts/tabellio-control-ref.mjs plan \
   --out /tmp/control-ref-intent.json
 ```
 
-`TABELLIO_CONTROL_REMOTE` must name a separately configured external Git destination. It cannot be `origin`. Create a matching `tabellio-control-ref-approval/v0.1` document after reviewing the exact local and remote OIDs, then execute it once with `tabellio-control-ref.mjs execute`. Multi-ref publication is atomic. Non-fast-forward publication, divergence, changed refs, expired approvals, and reused approvals fail closed.
+`TABELLIO_CONTROL_REMOTE` must name a separately configured private GitHub repository remote. It cannot be `origin`. Create a matching `tabellio-control-ref-approval/v0.1` document after reviewing the exact local and remote OIDs, then execute it once with `tabellio-control-ref.mjs execute`. Multi-ref publication is atomic. Non-fast-forward publication, divergence, changed refs, expired approvals, and reused approvals fail closed.
 
 ## Local Validation
 
@@ -101,7 +101,7 @@ Add the Tabellio checklist to the repository PR template:
 - [ ] No protected side effect attempted without explicit approval
 ```
 
-The full provider-neutral template lives at `templates/pull_request_template.md`.
+The full GitHub pull-request template lives at `templates/pull_request_template.md`.
 
 ## Protected Side Effects
 

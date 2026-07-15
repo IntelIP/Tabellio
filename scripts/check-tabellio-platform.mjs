@@ -18,6 +18,8 @@ try {
     codeRemote: config.codeStorage.remoteName,
     publicSurface: config.codeStorage.publicSurface,
     controlState: config.workflow.controlState,
+    controlProvider: config.workflow.controlProvider,
+    controlRemote: config.workflow.controlRemoteName,
     publishesControlRefsToCodeStorage: config.workflow.publishControlRefsToCodeStorage,
   }, null, 2));
 } catch (error) {

@@ -21,15 +21,8 @@ test("GitHub provider normalizes repositories, pull requests, reviews, comments,
       authorization: request.headers.authorization,
       accept: request.headers.accept,
     });
-    if (url.pathname === "/repos/acme/project") return json(response, repository(baseUrl));
-    if (url.pathname === "/repos/acme/project/pulls") return json(response, [pullRequest(baseUrl)]);
-    if (url.pathname === "/repos/acme/project/pulls/7") return json(response, pullRequest(baseUrl));
-    if (url.pathname === "/repos/acme/project/pulls/7/reviews") return json(response, [review(baseUrl)]);
-    if (url.pathname === "/repos/acme/project/pulls/7/comments") return json(response, [reviewComment(baseUrl)]);
-    if (url.pathname === "/repos/acme/project/issues/7/comments") return json(response, [issueComment(baseUrl)]);
-    if (url.pathname === `/repos/acme/project/commits/${commit}/status`) return json(response, combinedStatus(baseUrl));
-    if (url.pathname === `/repos/acme/project/commits/${commit}/check-runs`) return json(response, checkRuns(baseUrl));
-    return json(response, { message: "not found" }, 404);
+    const route = githubFixtureRoutes(baseUrl).get(url.pathname);
+    return route ? json(response, route()) : json(response, { message: "not found" }, 404);
   });
   t.after(fixture.close);
 
@@ -227,6 +220,19 @@ function checkRuns(baseUrl) {
       completed_at: timestamp,
     }],
   };
+}
+
+function githubFixtureRoutes(baseUrl) {
+  return new Map([
+    ["/repos/acme/project", () => repository(baseUrl)],
+    ["/repos/acme/project/pulls", () => [pullRequest(baseUrl)]],
+    ["/repos/acme/project/pulls/7", () => pullRequest(baseUrl)],
+    ["/repos/acme/project/pulls/7/reviews", () => [review(baseUrl)]],
+    ["/repos/acme/project/pulls/7/comments", () => [reviewComment(baseUrl)]],
+    ["/repos/acme/project/issues/7/comments", () => [issueComment(baseUrl)]],
+    [`/repos/acme/project/commits/${commit}/status`, () => combinedStatus(baseUrl)],
+    [`/repos/acme/project/commits/${commit}/check-runs`, () => checkRuns(baseUrl)],
+  ]);
 }
 
 async function startServer(handler) {

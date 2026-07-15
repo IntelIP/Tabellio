@@ -32,10 +32,12 @@
     "workflow": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stackManager", "controlState", "publishControlRefsToCodeStorage", "controlRefs"],
+      "required": ["stackManager", "controlState", "controlProvider", "controlRemoteName", "publishControlRefsToCodeStorage", "controlRefs"],
       "properties": {
         "stackManager": { "const": "git-spice" },
         "controlState": { "const": "external" },
+        "controlProvider": { "const": "github" },
+        "controlRemoteName": { "const": "control" },
         "publishControlRefsToCodeStorage": { "const": false },
         "controlRefs": {
           "type": "array",

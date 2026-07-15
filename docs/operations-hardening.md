@@ -32,12 +32,12 @@ Do not maintain a second merge authority. Independent squash or rebase merges cr
 
 Review cycles, validation results, and Entire checkpoints are published together with `git push --atomic`, explicit force-with-lease expectations, and a one-use approval. Publication rejects non-fast-forward updates, divergence, changed local or remote object IDs, expired approvals, and reused approval IDs.
 
-Automatic Entire session pushes to `origin` remain disabled. The approved control-ref transport publishes `refs/heads/entire/checkpoints/v1` with the review and validation refs only to a separately configured external destination. Planning and execution reject `origin`.
+Automatic Entire session pushes to `origin` remain disabled. The approved control-ref transport publishes `refs/heads/entire/checkpoints/v1` with the review and validation refs only to a separately configured private GitHub repository. Planning and execution reject `origin`.
 
 ## Production Checklist
 
-- Back up the selected external control-state service and test restore drills.
+- Back up the private GitHub control repository and test restore drills.
 - Isolate validation workers for untrusted code; detached worktrees are not sandboxes.
-- Scope code-storage and external Git credentials per repository and keep them out of URLs, arguments, and logs.
+- Scope code-storage and private-control GitHub credentials per repository and keep them out of URLs, arguments, and logs.
 - Monitor failed receipts, stale cross-host locks, validation duration, queue depth, and ref divergence.
 - Reconcile and republish control refs before retrying any divergence failure.
