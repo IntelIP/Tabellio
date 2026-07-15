@@ -11,7 +11,7 @@ All notable changes to Tabellio are recorded here.
 - Local validation results integrated into durable review readiness.
 - Git-native JSON ledger on compare-and-swap refs for durable control-plane state.
 - Durable review cycles covering GitHub feedback, agent findings, triage, checks, fixes, and readiness.
-- Dry-run-first, atomic review-cycle migration from the legacy v0.1 provider contract to GitHub-only v0.2 state.
+- Dry-run-first, atomic review-cycle migration from legacy v0.1 identities and PR numbers to GitHub-only v0.2 state.
 - Entire-checkpoint-bound fix records with commit remapping across git-spice restacks.
 - Approval-gated git-spice submit, update, sync, restack, and merge operations.
 - Integrity-bound operation intents, short-lived approvals, one-use receipts, and branch-set race checks.
@@ -37,6 +37,7 @@ All notable changes to Tabellio are recorded here.
 - Evidence artifact self-integrity now has an explicit canonical hash scope.
 - Handwritten policy validators now require approval booleans, unique action IDs, and non-empty forbidden side effects.
 - Runtime context validation now matches schema property boundaries.
+- Review sync ignores exact-commit validations belonging to a different repository identity.
 - Pull request CI now runs the Tabellio unit suite and records the source head commit.
 - Merge preview uses structured output so diagnostic words in file paths remain intact.
 - Context serialization rejects undefined fields and impossible object-ID lengths.

@@ -106,8 +106,9 @@ export class ValidationRunner {
   }
 }
 
-export async function latestValidationResult(ledger, commit) {
+export async function latestValidationResult(ledger, commit, repositoryId = null) {
   oid(commit, "commit");
+  if (repositoryId !== null) requiredString(repositoryId, "repositoryId");
   const prefix = `commits/${commit}`;
   const listed = await ledger.list(prefix);
   let latest = null;
@@ -116,6 +117,7 @@ export async function latestValidationResult(ledger, commit) {
     if (!record.value) continue;
     validateValidationResult(record.value);
     if (record.value.revision.headCommit !== commit) throw new Error(`Validation result ${path} is stored under the wrong commit.`);
+    if (repositoryId !== null && record.value.repository.id !== repositoryId) continue;
     if (!latest || Date.parse(record.value.completedAt) > Date.parse(latest.completedAt)) latest = record.value;
   }
   return latest;

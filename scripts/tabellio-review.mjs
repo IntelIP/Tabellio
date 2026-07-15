@@ -24,7 +24,7 @@ const ALLOWED_OPTIONS = {
   triage: [...COMMON_OPTIONS, "feedbackId", "disposition", "reason"],
   fix: [...COMMON_OPTIONS, "feedbackIds", "commit", "checkpoint", "summary"],
   import: [...COMMON_OPTIONS, "input"],
-  migrate: [...COMMON_OPTIONS, "apply", "legacyRepoId", "legacyOwner", "legacyRemoteRepo"],
+  migrate: [...COMMON_OPTIONS, "apply", "targetNumber", "remapCurrent", "legacyRepoId", "legacyOwner", "legacyRemoteRepo"],
 };
 const REQUIRED_OPTIONS = {
   sync: [],
@@ -123,6 +123,8 @@ async function importAgentReview(manager, options) {
 function migrateReview(manager, options) {
   return manager.migrate({
     number: options.number,
+    targetNumber: options.targetNumber,
+    remapCurrent: options.remapCurrent,
     apply: options.apply,
     legacyRepositoryId: options.legacyRepoId,
     legacyOwner: options.legacyOwner,
@@ -156,7 +158,20 @@ function defaultActor(actor) {
 
 function migrationOptions(command, values) {
   if (command !== "migrate") return {};
-  return { apply: booleanOption(values.apply ?? "false", "--apply") };
+  return {
+    apply: optionalBooleanOption(values.apply, "--apply"),
+    remapCurrent: optionalBooleanOption(values.remapCurrent, "--remap-current"),
+    targetNumber: migrationTargetNumber(values),
+  };
+}
+
+function optionalBooleanOption(value, flag) {
+  return booleanOption(value === undefined ? "false" : value, flag);
+}
+
+function migrationTargetNumber(values) {
+  if (values.targetNumber === undefined) return positiveNumberOption(values.number, "--number");
+  return positiveNumberOption(values.targetNumber, "--target-number");
 }
 
 function booleanOption(value, flag) {

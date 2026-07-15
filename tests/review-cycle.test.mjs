@@ -197,7 +197,7 @@ test("review-cycle v0.1 migration is deterministic and rejects tampering", async
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
   const identity = {
     source: legacyIdentity(),
-    target: githubIdentity(),
+    target: { ...githubIdentity(), number: 14 },
   };
   const legacy = legacyReviewCycle(fixture);
   const migrated = migrateReviewCycleV1ToV2(legacy, identity);
@@ -208,12 +208,14 @@ test("review-cycle v0.1 migration is deterministic and rejects tampering", async
   assert.equal(migrated.cycle.repository.id, "IntelIP/Tabellio");
   assert.equal(migrated.cycle.provider.id, "github");
   assert.deepEqual(migrated.cycle.provider, { id: "github", owner: "IntelIP", repo: "Tabellio" });
-  assert.equal(migrated.cycle.changeRequest.url, "https://github.com/IntelIP/Tabellio/pull/7");
+  assert.equal(migrated.cycle.changeRequest.id, "pending-github-sync:forgejo:21");
+  assert.equal(migrated.cycle.changeRequest.number, 14);
+  assert.equal(migrated.cycle.changeRequest.url, "https://github.com/IntelIP/Tabellio/pull/14");
   assert.equal(migrated.cycle.feedback[0].source, "github");
   assert.equal(migrated.cycle.checks.statuses[0].targetUrl, null);
   assert.equal(validateReviewCycle(migrated.cycle), migrated.cycle);
 
-  const repeated = migrateReviewCycleV1ToV2(migrated.cycle, identity);
+  const repeated = migrateReviewCycleV1ToV2(migrated.cycle, { source: identity.target, target: identity.target });
   assert.equal(repeated.changed, false);
   assert.deepEqual(repeated.cycle, migrated.cycle);
 
@@ -225,7 +227,7 @@ test("review-cycle v0.1 migration is deterministic and rejects tampering", async
 test("review-cycle migration previews, atomically moves, and becomes idempotent", async (t) => {
   const { fixture, store, ledger } = await createReviewFixture(t);
   const source = legacyIdentity();
-  const target = githubIdentity();
+  const target = { ...githubIdentity(), number: 14 };
   const paths = {
     legacy: reviewCyclePaths(source).legacy,
     current: reviewCyclePaths(target).current,
@@ -242,6 +244,7 @@ test("review-cycle migration previews, atomically moves, and becomes idempotent"
 
   const migrationOptions = {
     number: 7,
+    targetNumber: 14,
     legacyRepositoryId: source.repositoryId,
     legacyOwner: source.owner,
     legacyRepo: source.repo,
@@ -249,6 +252,7 @@ test("review-cycle migration previews, atomically moves, and becomes idempotent"
   const preview = await manager.migrate(migrationOptions);
   assert.equal(preview.state, "preview");
   assert.equal(preview.applied, false);
+  assert.equal(preview.requiresSync, true);
   assert.equal(await ledger.version(), seeded.version);
 
   const applied = await manager.migrate({ ...migrationOptions, apply: true });
@@ -256,12 +260,50 @@ test("review-cycle migration previews, atomically moves, and becomes idempotent"
   assert.equal(applied.applied, true);
   assert.equal((await ledger.read(paths.legacy)).value, null);
   assert.equal((await ledger.read(paths.current)).value.schemaVersion, "tabellio-review-cycle/v0.2");
+  assert.equal((await ledger.read(paths.current)).value.changeRequest.number, 14);
   assert.deepEqual((await ledger.list("cycles")).paths, [paths.current]);
 
   const repeated = await manager.migrate({ ...migrationOptions, apply: true });
   assert.equal(repeated.state, "current");
   assert.equal(repeated.changed, false);
+  assert.equal(repeated.requiresSync, true);
   assert.equal(repeated.version, applied.version);
+});
+
+test("review-cycle migration atomically corrects an already migrated PR number", async (t) => {
+  const { fixture, store, ledger } = await createReviewFixture(t);
+  const wrong = githubIdentity();
+  const target = { ...wrong, number: 14 };
+  const wrongPath = reviewCyclePaths(wrong).current;
+  const targetPath = reviewCyclePaths(target).current;
+  const migrated = migrateReviewCycleV1ToV2(legacyReviewCycle(fixture), {
+    source: legacyIdentity(),
+    target: wrong,
+  }).cycle;
+  await ledger.write(wrongPath, migrated, { expectedVersion: null });
+  const manager = new ReviewCycleManager({
+    store,
+    ledger,
+    provider: null,
+    repositoryId: target.repositoryId,
+    owner: target.owner,
+    repo: target.repo,
+  });
+
+  await assert.rejects(
+    manager.migrate({ number: 7, targetNumber: 14 }),
+    /--remap-current true/,
+  );
+  const preview = await manager.migrate({ number: 7, targetNumber: 14, remapCurrent: true });
+  assert.equal(preview.state, "preview");
+  assert.equal(preview.sourcePath, wrongPath);
+  assert.equal(preview.path, targetPath);
+  assert.equal(preview.cycle.changeRequest.number, 14);
+
+  const applied = await manager.migrate({ number: 7, targetNumber: 14, remapCurrent: true, apply: true });
+  assert.equal(applied.state, "migrated");
+  assert.equal((await ledger.read(wrongPath)).value, null);
+  assert.equal((await ledger.read(targetPath)).value.changeRequest.number, 14);
 });
 
 async function createReviewFixture(t) {

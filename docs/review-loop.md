@@ -53,6 +53,7 @@ node scripts/tabellio-review.mjs migrate \
   --owner IntelIP \
   --remote-repo Tabellio \
   --number 7 \
+  --target-number 14 \
   --legacy-repo-id old-owner/old-repository \
   --legacy-owner old-owner \
   --legacy-remote-repo old-repository
@@ -67,13 +68,16 @@ node scripts/tabellio-review.mjs migrate \
   --owner IntelIP \
   --remote-repo Tabellio \
   --number 7 \
+  --target-number 14 \
   --legacy-repo-id old-owner/old-repository \
   --legacy-owner old-owner \
   --legacy-remote-repo old-repository \
   --apply true
 ```
 
-Legacy identity options default to the target coordinates, so they are needed only when the repository moved or was renamed. The migration verifies the v0.1 integrity digest and source identity, maps repository and provider identity to the GitHub target, rewrites feedback sources, replaces the pull-request URL with its canonical GitHub URL, clears obsolete provider check links, recomputes integrity, and atomically moves the ledger entry to its v0.2 path. The current ledger tree contains only the v0.2 entry; the original remains recoverable from Git history. Repeating the command reports `current` without writing another commit.
+`--number` identifies the legacy cycle. `--target-number` identifies the corresponding GitHub pull request and defaults to `--number`. Legacy identity options default to the target coordinates, so they are needed only when the repository moved or was renamed. The migration verifies the v0.1 integrity digest and source identity, maps repository and provider identity to the GitHub target, rewrites feedback sources, replaces the pull-request URL with its canonical GitHub URL, clears obsolete provider check links, recomputes integrity, and atomically moves the ledger entry to its v0.2 path. It can also atomically correct a previously migrated cycle whose GitHub PR number was mapped incorrectly; that recovery path additionally requires `--remap-current true`. The current ledger tree contains only the v0.2 entry; prior forms remain recoverable from Git history. Repeating the command reports `current` without writing another commit.
+
+Migration marks the provider-owned change-request ID as pending. Run `sync` for the target GitHub PR immediately after applying so GitHub refreshes the ID, title, state, head/base commits, feedback, and checks.
 
 ## Import A Codex Review
 
