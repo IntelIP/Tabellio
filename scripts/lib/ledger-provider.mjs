@@ -7,11 +7,13 @@ export class LedgerProvider {
   }
 
   /** @param {{repositoryId: string, baseRevision: string, headRevision: string, capturedAt?: string}} options */
+  // fallow-ignore-next-line unused-class-member
   async snapshot(_options) {
     throw new Error("LedgerProvider.snapshot must be implemented.");
   }
 
   /** @param {unknown} snapshot */
+  // fallow-ignore-next-line unused-class-member
   contextReferences(_snapshot) {
     throw new Error("LedgerProvider.contextReferences must be implemented.");
   }

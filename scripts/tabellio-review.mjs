@@ -16,7 +16,7 @@ import { ReviewCycleManager } from "./lib/review-cycle.mjs";
 import { GitHubProvider } from "./providers/github-provider.mjs";
 import { NativeGitStore } from "./providers/native-git-store.mjs";
 
-const COMMANDS = new Set(["sync", "status", "triage", "fix", "import", "migrate"]);
+const COMMANDS = new Set(["sync", "status", "triage", "fix", "import"]);
 const COMMON_OPTIONS = ["repo", "repoId", "owner", "remoteRepo", "number", "actor", "ledgerRef", "validationLedgerRef"];
 const ALLOWED_OPTIONS = {
   sync: [...COMMON_OPTIONS, "apiUrl", "tokenFile"],
@@ -24,7 +24,6 @@ const ALLOWED_OPTIONS = {
   triage: [...COMMON_OPTIONS, "feedbackId", "disposition", "reason"],
   fix: [...COMMON_OPTIONS, "feedbackIds", "commit", "checkpoint", "summary"],
   import: [...COMMON_OPTIONS, "input"],
-  migrate: [...COMMON_OPTIONS, "apply", "targetNumber", "remapCurrent", "legacyRepoId", "legacyOwner", "legacyRemoteRepo"],
 };
 const REQUIRED_OPTIONS = {
   sync: [],
@@ -32,7 +31,6 @@ const REQUIRED_OPTIONS = {
   triage: ["feedbackId", "disposition", "reason"],
   fix: ["feedbackIds", "commit", "checkpoint", "summary"],
   import: ["input"],
-  migrate: [],
 };
 const COMMAND_HANDLERS = {
   sync: syncReview,
@@ -40,7 +38,6 @@ const COMMAND_HANDLERS = {
   triage: triageReview,
   fix: recordReviewFix,
   import: importAgentReview,
-  migrate: migrateReview,
 };
 
 main().catch(reportCliError);
@@ -120,18 +117,6 @@ async function importAgentReview(manager, options) {
   });
 }
 
-function migrateReview(manager, options) {
-  return manager.migrate({
-    number: options.number,
-    targetNumber: options.targetNumber,
-    remapCurrent: options.remapCurrent,
-    apply: options.apply,
-    legacyRepositoryId: options.legacyRepoId,
-    legacyOwner: options.legacyOwner,
-    legacyRepo: options.legacyRemoteRepo,
-  });
-}
-
 function parseArgs(args) {
   const command = args[0];
   requireCommand(command);
@@ -144,37 +129,13 @@ function parseArgs(args) {
     ...values,
     number: positiveNumberOption(values.number, "--number"),
     actor: defaultActor(values.actor),
-    ...migrationOptions(command, values),
   };
 }
 
 function requireCommand(command) {
-  if (!COMMANDS.has(command)) throw new Error("Expected command: sync, status, triage, fix, import, or migrate.");
+  if (!COMMANDS.has(command)) throw new Error("Expected command: sync, status, triage, fix, or import.");
 }
 
 function defaultActor(actor) {
   return actor ?? process.env.USER ?? "local-agent";
-}
-
-function migrationOptions(command, values) {
-  if (command !== "migrate") return {};
-  return {
-    apply: optionalBooleanOption(values.apply, "--apply"),
-    remapCurrent: optionalBooleanOption(values.remapCurrent, "--remap-current"),
-    targetNumber: migrationTargetNumber(values),
-  };
-}
-
-function optionalBooleanOption(value, flag) {
-  return booleanOption(value === undefined ? "false" : value, flag);
-}
-
-function migrationTargetNumber(values) {
-  if (values.targetNumber === undefined) return positiveNumberOption(values.number, "--number");
-  return positiveNumberOption(values.targetNumber, "--target-number");
-}
-
-function booleanOption(value, flag) {
-  if (!["true", "false"].includes(value)) throw new Error(`${flag} must be true or false.`);
-  return value === "true";
 }

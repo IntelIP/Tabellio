@@ -5,11 +5,13 @@ export class RepositoryStore {
   }
 
   /** @param {string} revision @returns {Promise<string[]>} */
+  // fallow-ignore-next-line unused-class-member
   async listFiles(_revision) {
     throw new Error("RepositoryStore.listFiles must be implemented.");
   }
 
   /** @param {string} baseRevision @param {string} headRevision */
+  // fallow-ignore-next-line unused-class-member
   async getDiff(_baseRevision, _headRevision) {
     throw new Error("RepositoryStore.getDiff must be implemented.");
   }
@@ -20,26 +22,31 @@ export class RepositoryStore {
   }
 
   /** @param {string} ref */
+  // fallow-ignore-next-line unused-class-member
   async hasRef(_ref) {
     throw new Error("RepositoryStore.hasRef must be implemented.");
   }
 
   /** @param {{path: string, branch: string, startPoint: string}} options */
+  // fallow-ignore-next-line unused-class-member
   async createWorkspace(_options) {
     throw new Error("RepositoryStore.createWorkspace must be implemented.");
   }
 
   /** @param {{path: string, force?: boolean}} options */
+  // fallow-ignore-next-line unused-class-member
   async removeWorkspace(_options) {
     throw new Error("RepositoryStore.removeWorkspace must be implemented.");
   }
 
   /** @param {string} revision @param {{notesRef?: string}} options */
+  // fallow-ignore-next-line unused-class-member
   async readNote(_revision, _options = {}) {
     throw new Error("RepositoryStore.readNote must be implemented.");
   }
 
   /** @param {string} revision @param {{notesRef?: string, note: string}} options */
+  // fallow-ignore-next-line unused-class-member
   async writeNote(_revision, _options) {
     throw new Error("RepositoryStore.writeNote must be implemented.");
   }
@@ -50,6 +57,7 @@ export class RepositoryStore {
   }
 
   /** @param {{base: string, head: string}} options */
+  // fallow-ignore-next-line unused-class-member
   async previewMerge(_options) {
     throw new Error("RepositoryStore.previewMerge must be implemented.");
   }
@@ -60,6 +68,7 @@ export class RepositoryStore {
   }
 
   /** @param {{ref: string, newRevision: string, expectedOldCommit: string}} options */
+  // fallow-ignore-next-line unused-class-member
   async fastForwardRef(_options) {
     throw new Error("RepositoryStore.fastForwardRef must be implemented.");
   }

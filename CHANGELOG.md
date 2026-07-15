@@ -4,6 +4,8 @@ All notable changes to Tabellio are recorded here.
 
 ## Unreleased
 
+## 0.2.0 - 2026-07-15
+
 ### Added
 
 - GitHub-bound exact-commit validation runner with committed argv manifests and no shell execution.
@@ -11,7 +13,6 @@ All notable changes to Tabellio are recorded here.
 - Local validation results integrated into durable review readiness.
 - Git-native JSON ledger on compare-and-swap refs for durable control-plane state.
 - Durable review cycles covering GitHub feedback, agent findings, triage, checks, fixes, and readiness.
-- Dry-run-first, atomic review-cycle migration from legacy v0.1 identities and PR numbers to GitHub-only v0.2 state.
 - Entire-checkpoint-bound fix records with commit remapping across git-spice restacks.
 - Approval-gated git-spice submit, update, sync, restack, and merge operations.
 - Integrity-bound operation intents, short-lived approvals, one-use receipts, and branch-set race checks.
@@ -33,7 +34,8 @@ All notable changes to Tabellio are recorded here.
 
 ### Fixed
 
-- Removed 15 unused public exports and consolidated provider subprocess handling; inherited Fallow dead-code findings dropped from 49 to 34 without deleting runtime interface methods.
+- Removed 15 unused public exports and consolidated provider subprocess handling.
+- Classified all 34 reported interface and injected class methods against runtime and test call sites, then added narrow stale-checked Fallow suppressions; unresolved dead-code findings are zero.
 - Evidence artifact self-integrity now has an explicit canonical hash scope.
 - Handwritten policy validators now require approval booleans, unique action IDs, and non-empty forbidden side effects.
 - Runtime context validation now matches schema property boundaries.
@@ -50,6 +52,18 @@ All notable changes to Tabellio are recorded here.
 - Standardized stacked GitHub pull requests on git-spice.
 - Made GitHub `origin` the canonical code store and thin pull-request shell while keeping agent control state external.
 - Rejected publication or fetching of review, validation, and Entire control refs through the code-storage remote.
+
+### Removed
+
+- Retired the completed one-time legacy review-cycle migration command, decoder, remap helpers, documentation, and fixtures. Recovery code remains available in Git history.
+
+### Release Gates
+
+- `npm run check`
+- Fallow whole-repository dead-code and stale-suppression scan
+- Fallow changed-code audit against `origin/main`
+- `npm pack --dry-run --json`
+- Exact-head Tabellio validation
 
 ## 0.1.0 - 2026-07-08
 

@@ -34,6 +34,7 @@ export class GitSpiceStackManager extends StackManager {
     return normalized;
   }
 
+  // fallow-ignore-next-line unused-class-member
   async snapshot({ repositoryId, capturedAt = new Date().toISOString() }) {
     requiredString(repositoryId, "repositoryId");
     const version = await this.toolVersion();

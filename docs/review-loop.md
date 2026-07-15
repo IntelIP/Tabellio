@@ -42,43 +42,6 @@ node scripts/tabellio-review.mjs sync \
 
 Sync imports GitHub reviews, inline review comments, issue comments, commit statuses, check runs, and the newest Tabellio validation for the PR head. `GITHUB_TOKEN` may replace `--token-file`; `GITHUB_API_URL` or `--api-url` may target GitHub Enterprise Server. Missing GitHub items are retained as stale evidence rather than silently deleted. A PR with no validation remains `validating`.
 
-## Migrate A v0.1 Cycle
-
-Review cycles created before the GitHub-only boundary use `tabellio-review-cycle/v0.1` and a legacy ledger path. Preview the deterministic migration first:
-
-```bash
-node scripts/tabellio-review.mjs migrate \
-  --repo . \
-  --repo-id IntelIP/Tabellio \
-  --owner IntelIP \
-  --remote-repo Tabellio \
-  --number 7 \
-  --target-number 14 \
-  --legacy-repo-id old-owner/old-repository \
-  --legacy-owner old-owner \
-  --legacy-remote-repo old-repository
-```
-
-Apply the verified plan explicitly:
-
-```bash
-node scripts/tabellio-review.mjs migrate \
-  --repo . \
-  --repo-id IntelIP/Tabellio \
-  --owner IntelIP \
-  --remote-repo Tabellio \
-  --number 7 \
-  --target-number 14 \
-  --legacy-repo-id old-owner/old-repository \
-  --legacy-owner old-owner \
-  --legacy-remote-repo old-repository \
-  --apply true
-```
-
-`--number` identifies the legacy cycle. `--target-number` identifies the corresponding GitHub pull request and defaults to `--number`. Legacy identity options default to the target coordinates, so they are needed only when the repository moved or was renamed. The migration verifies the v0.1 integrity digest and source identity, maps repository and provider identity to the GitHub target, rewrites feedback sources, replaces the pull-request URL with its canonical GitHub URL, clears obsolete provider check links, recomputes integrity, and atomically moves the ledger entry to its v0.2 path. It can also atomically correct a previously migrated cycle whose GitHub PR number was mapped incorrectly; that recovery path additionally requires `--remap-current true`. The current ledger tree contains only the v0.2 entry; prior forms remain recoverable from Git history. Repeating the command reports `current` without writing another commit.
-
-Migration marks the provider-owned change-request ID as pending. Run `sync` for the target GitHub PR immediately after applying so GitHub refreshes the ID, title, state, head/base commits, feedback, and checks.
-
 ## Import A Codex Review
 
 Codex and other agents emit `tabellio-agent-review/v0.1`:

@@ -94,6 +94,7 @@ export class AgentRunManager {
     });
   }
 
+  // fallow-ignore-next-line unused-class-member
   async checkpoint({ runId, summary }) {
     return this.#withLock(runId, async () => {
       const state = await this.#readState(runId);
@@ -132,6 +133,7 @@ export class AgentRunManager {
     });
   }
 
+  // fallow-ignore-next-line unused-class-member
   async finish({ runId, validationCommand, onValidationOutput = null }) {
     return this.#withLock(runId, async () => {
       const state = await this.#readState(runId);
@@ -221,6 +223,7 @@ export class AgentRunManager {
     });
   }
 
+  // fallow-ignore-next-line unused-class-member
   async promote({ runId }) {
     return this.#withLock(runId, async () => {
       const state = await this.#readState(runId);
@@ -247,6 +250,7 @@ export class AgentRunManager {
     });
   }
 
+  // fallow-ignore-next-line unused-class-member
   async status({ runId }) {
     return this.#result(await this.#readState(runId));
   }
