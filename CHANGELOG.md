@@ -47,6 +47,8 @@ All notable changes to Tabellio are recorded here.
 ### Changed
 
 - Replaced Graphite as the planned stacked-review integration with host-agnostic git-spice.
+- Made GitHub `origin` the canonical code store and thin pull-request shell while keeping agent control state external.
+- Rejected publication or fetching of review, validation, and Entire control refs through the code-storage remote.
 
 ## 0.1.0 - 2026-07-08
 
