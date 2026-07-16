@@ -58,7 +58,20 @@
           "required": ["id"],
           "properties": { "id": { "type": "string", "minLength": 1 } }
         },
-        "intent": { "$ref": "urn:tabellio:schema:control-ref-operation:v0.1" }
+        "intent": {
+          "$ref": "urn:tabellio:schema:control-ref-operation:v0.1",
+          "properties": {
+            "refs": {
+              "minItems": 3,
+              "maxItems": 3,
+              "allOf": [
+                { "contains": { "type": "object", "properties": { "name": { "const": "refs/tabellio/reviews" } }, "required": ["name"] }, "minContains": 1 },
+                { "contains": { "type": "object", "properties": { "name": { "const": "refs/tabellio/validations" } }, "required": ["name"] }, "minContains": 1 },
+                { "contains": { "type": "object", "properties": { "name": { "const": "refs/heads/entire/checkpoints/v1" } }, "required": ["name"] }, "minContains": 1 }
+              ]
+            }
+          }
+        }
       }
     },
     "validation": {

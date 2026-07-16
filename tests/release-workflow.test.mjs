@@ -35,6 +35,7 @@ test("release intent binds merged commit, validation, control refs, notes, and a
   assert.throws(() => exampleIntent({ releaseCreatedAt: "1" }), /ISO date-time/);
   assert.throws(() => exampleIntent({ owner: "different" }), /must match/);
   assert.throws(() => exampleIntent({ controlRepositoryId: "github.com/example/repository" }), /must differ/);
+  assert.throws(() => exampleIntent({ controlRefs: ["refs/tabellio/validations"] }), /complete release control-ref set/);
 });
 
 test("release executor reconciles completed publication phases after a failure", async (t) => {
@@ -93,6 +94,15 @@ test("release executor serializes concurrent execution of the same approval", as
   assert.equal((await first).receipt.status, "succeeded");
 });
 
+test("release executor rejects worktree-local state roots before writing receipts", async (t) => {
+  const fixture = await createFixture();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  await assert.rejects(
+    ReleaseExecutor.open({ repoPath: fixture.seed, stateRoot: join(fixture.seed, "release-state") }),
+    /state root must be outside the worktree/,
+  );
+});
+
 test("approved release publishes exact control ref, annotated tag, and GitHub release in isolated repos", async (t) => {
   const fixture = await createFixture();
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
@@ -118,12 +128,17 @@ test("approved release publishes exact control ref, annotated tag, and GitHub re
   const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
   const validationWrite = await ledger.write("commits/result.json", { status: "passed" }, { expectedVersion: null });
   await runGit({ args: ["update-ref", "refs/tabellio/reviews", head], cwd: fixture.seed });
+  await runGit({ args: ["update-ref", "refs/heads/entire/checkpoints/v1", head], cwd: fixture.seed });
   await runGit({ args: ["push", "control", "refs/tabellio/reviews"], cwd: fixture.seed });
   const controlIntent = createControlRefIntent({
     operation: "publish",
     repositoryId,
     remote: "control",
-    refs: await snapshotControlRefs({ repoPath: fixture.seed, remote: "control", refs: ["refs/tabellio/validations", "refs/tabellio/reviews"] }),
+    refs: await snapshotControlRefs({
+      repoPath: fixture.seed,
+      remote: "control",
+      refs: ["refs/tabellio/validations", "refs/tabellio/reviews", "refs/heads/entire/checkpoints/v1"],
+    }),
     createdAt,
   });
   const intent = createReleaseIntent({
@@ -152,13 +167,14 @@ test("approved release publishes exact control ref, annotated tag, and GitHub re
   };
   const stateRoot = join(fixture.root, "release-state");
   let liveReads = 0;
+  let liveResponses = [];
   let currentControlIdentity = intent.control.repository.id;
   let currentControlPrivate = true;
   const executor = await ReleaseExecutor.open({
     repoPath: fixture.seed,
     stateRoot,
     commandRunner,
-    remoteRefReader: async () => { liveReads += 1; return head; },
+    remoteRefReader: async () => { liveReads += 1; return liveResponses.shift() ?? head; },
     codeRepositoryReader: async () => "github.com/EXAMPLE/REPOSITORY",
     controlRepositoryReader: async () => ({ id: currentControlIdentity, isPrivate: currentControlPrivate }),
   });
@@ -178,11 +194,17 @@ test("approved release publishes exact control ref, annotated tag, and GitHub re
   await assert.rejects(executor.execute({ intent, approval, now }), /control repository is not private/);
   currentControlPrivate = true;
   await assert.rejects(executor.execute({ intent, approval, now }), /remotely as a lightweight tag/);
-  await runGit({ args: ["push", "control", ":refs/tabellio/validations"], cwd: fixture.seed });
+  await runGit({
+    args: ["push", "control", ":refs/tabellio/validations", ":refs/heads/entire/checkpoints/v1"],
+    cwd: fixture.seed,
+  });
   await runGit({ args: ["push", "origin", `:refs/tags/${intent.tag}`], cwd: fixture.seed });
   await writeFile(join(fixture.seed, notesPath), "MUTATED WORKTREE NOTES\n");
   await assert.rejects(executor.execute({ intent, approval, now }), /clean worktree/);
   await runGit({ args: ["restore", notesPath], cwd: fixture.seed });
+  liveResponses = [head, parent];
+  await assert.rejects(executor.execute({ intent, approval, now }), /immediately before tag publication/);
+  assert.deepEqual(liveResponses, []);
   await runGit({ args: ["config", "--unset", "user.name"], cwd: fixture.seed });
   await runGit({ args: ["config", "--unset", "user.email"], cwd: fixture.seed });
   const result = await executor.execute({ intent, approval, now });
@@ -191,11 +213,14 @@ test("approved release publishes exact control ref, annotated tag, and GitHub re
   assert.equal(result.receiptPath, join(stateRoot, "publish-release.json"));
   const approvedTagObject = (await runGit({ args: ["rev-parse", `refs/tags/${intent.tag}`], cwd: fixture.seed })).stdout.trim();
 
-  await runGit({ args: ["push", "control", ":refs/tabellio/validations"], cwd: fixture.seed });
+  await runGit({
+    args: ["push", "control", ":refs/tabellio/validations", ":refs/heads/entire/checkpoints/v1"],
+    cwd: fixture.seed,
+  });
   await runGit({ args: ["push", "origin", `:refs/tags/${intent.tag}`], cwd: fixture.seed });
   const reconciled = await executor.execute({ intent, approval, now });
   assert.equal(reconciled.receipt.status, "succeeded");
-  assert.equal(liveReads, 7);
+  assert.equal(liveReads, 11);
   assert.equal(ghCalls.length, 4);
   assert.deepEqual(publishedNotes, ["Release 1.2.3\n", "Release 1.2.3\n"]);
   const remoteTag = await runGit({ args: ["ls-remote", "--tags", "origin", "refs/tags/v1.2.3^{}"], cwd: fixture.seed });
@@ -364,12 +389,17 @@ function exampleIntent({
   owner = "example",
   repoName = "repository",
   controlRepositoryId = "github.com/example/repository-control",
+  controlRefs = ["refs/tabellio/reviews", "refs/tabellio/validations", "refs/heads/entire/checkpoints/v1"],
 } = {}) {
   const controlIntent = createControlRefIntent({
     operation: "publish",
     repositoryId,
     remote: "control",
-    refs: [{ name: "refs/tabellio/validations", localOid: "c".repeat(40), remoteOid: "b".repeat(40) }],
+    refs: controlRefs.map((name, index) => ({
+      name,
+      localOid: String(index + 1).repeat(40),
+      remoteOid: String(index + 4).repeat(40),
+    })),
     createdAt,
   });
   return createReleaseIntent({

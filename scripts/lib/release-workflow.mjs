@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   ApprovedControlRefTransport,
@@ -35,7 +35,10 @@ export class ReleaseExecutor {
   } = {}) {
     const store = await NativeGitStore.open(resolve(repoPath));
     const common = (await runGit({ args: ["rev-parse", "--git-common-dir"], cwd: store.repoPath })).stdout.trim();
-    const root = stateRoot ? resolve(stateRoot) : resolve(store.repoPath, common, "tabellio", "release-operations");
+    const root = stateRoot === null
+      ? resolve(store.repoPath, common, "tabellio", "release-operations")
+      : resolve(stateRoot);
+    if (stateRoot !== null) assertExternalStateRoot(store.repoPath, await canonicalProspectivePath(root));
     const actions = new ReleaseActions({ store, ghBinary, commandRunner, remoteRefReader, codeRepositoryReader, controlRepositoryReader });
     return new ReleaseExecutor({ repoPath: store.repoPath, stateRoot: root, actions });
   }
@@ -157,6 +160,8 @@ class ReleaseActions {
     const remote = await remoteTagState(this.store.repoPath, intent.code.remote, intent.tag);
     assertTagTarget(local, intent, "locally", canonicalObject);
     assertTagTarget(remote, intent, "remotely", canonicalObject);
+    const liveMain = await this.remoteRefReader({ repoPath: this.store.repoPath, remote: intent.code.remote, ref: "refs/heads/main" });
+    assertEqual(liveMain, intent.revision.commit, "Release commit no longer equals live origin/main immediately before tag publication.");
     await ensureLocalTag(this.store.repoPath, intent, local, remote, canonicalObject);
     local = await localTagState(this.store.repoPath, intent.tag);
     assertTagTarget(local, intent, "locally", canonicalObject);
@@ -240,6 +245,26 @@ async function completeRelease(path, state) {
 
 function releaseResult(receipt, receiptPath) {
   return { receipt, receiptPath };
+}
+
+function assertExternalStateRoot(repoPath, stateRoot) {
+  const path = relative(repoPath, stateRoot);
+  const outside = path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path);
+  if (!outside) throw new Error("Release state root must be outside the worktree; omit --state-root to use Git metadata.");
+}
+
+async function canonicalProspectivePath(path) {
+  const { ancestor, missing } = await realExistingAncestor(path);
+  return resolve(ancestor, ...missing);
+}
+
+async function realExistingAncestor(path, missing = []) {
+  try {
+    return { ancestor: await realpath(path), missing };
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    return realExistingAncestor(dirname(path), [basename(path), ...missing]);
+  }
 }
 
 function assertReleaseRepository(actual, intent) {

@@ -6,6 +6,11 @@ import { digestObject } from "./stack-operation.mjs";
 const RELEASE_OPERATION_VERSION = "tabellio-release-operation/v0.1";
 const RELEASE_APPROVAL_VERSION = "tabellio-release-approval/v0.1";
 const MAX_RELEASE_APPROVAL_MS = 60 * 60 * 1000;
+const RELEASE_CONTROL_REFS = [
+  "refs/tabellio/reviews",
+  "refs/tabellio/validations",
+  "refs/heads/entire/checkpoints/v1",
+];
 
 export function createReleaseIntent({
   repository,
@@ -83,6 +88,7 @@ export function validateReleaseIntent(value) {
   contract.equals(value.control.intent.operation, "publish", "intent.control.intent.operation");
   contract.equals(value.control.intent.remote, "control", "intent.control.intent.remote");
   contract.equals(value.control.intent.repository.id, value.repository.id, "intent.control.intent.repository.id");
+  assertCompleteReleaseControlRefs(value.control.intent.refs);
 
   contract.object(value.validation, "intent.validation");
   contract.exactKeys(value.validation, ["runId", "resultVersion", "status", "headCommit"], "intent.validation");
@@ -126,4 +132,11 @@ function assertCodeRepositoryIdentity(repository) {
 
 function assertSeparateControlRepository(repository, controlRepository) {
   if (controlRepository.id.toLowerCase() === repository.id.toLowerCase()) throw new Error("intent.control.repository.id must differ from intent.repository.id.");
+}
+
+function assertCompleteReleaseControlRefs(refs) {
+  const names = new Set(refs.map((entry) => entry.name));
+  if (refs.length !== RELEASE_CONTROL_REFS.length || RELEASE_CONTROL_REFS.some((ref) => !names.has(ref))) {
+    throw new Error("intent.control.intent.refs must contain the complete release control-ref set.");
+  }
 }
