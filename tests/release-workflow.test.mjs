@@ -58,6 +58,7 @@ test("release executor reconciles completed publication phases after a failure",
     stateRoot: root,
     actions,
     lockRunner: async (_options, action) => action(),
+    clock: () => now,
   });
   const intent = exampleIntent();
   const approval = approvalFor(intent, "resume-release");
@@ -68,6 +69,29 @@ test("release executor reconciles completed publication phases after a failure",
   assert.equal(result.receipt.phases.every((phase) => phase.status === "completed"), true);
   assert.equal(result.receiptPath, join(root, "resume-release.json"));
   assert.equal(Object.hasOwn(result.receipt, "receiptPath"), false);
+});
+
+test("release executor rechecks approval expiry before every publish phase", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "tabellio-release-expiry-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const calls = [];
+  let current = now;
+  const executor = new ReleaseExecutor({
+    repoPath: root,
+    stateRoot: root,
+    actions: {
+      async run(phase) {
+        calls.push(phase);
+        if (phase === "control-refs") current = new Date(expiresAt);
+        return { phase };
+      },
+    },
+    lockRunner: async (_options, action) => action(),
+    clock: () => current,
+  });
+  const intent = exampleIntent();
+  await assert.rejects(executor.execute({ intent, approval: approvalFor(intent, "expiring-release"), now }), /approval has expired/);
+  assert.deepEqual(calls, ["verify", "control-refs"]);
 });
 
 test("release executor serializes concurrent execution of the same approval", async (t) => {
@@ -84,6 +108,7 @@ test("release executor serializes concurrent execution of the same approval", as
     repoPath: fixture.seed,
     stateRoot: join(fixture.root, "release-lock-state"),
     actions,
+    clock: () => now,
   });
   const intent = exampleIntent();
   const approval = approvalFor(intent, "concurrent-release");
@@ -177,6 +202,7 @@ test("approved release publishes exact control ref, annotated tag, and GitHub re
     remoteRefReader: async () => { liveReads += 1; return liveResponses.shift() ?? head; },
     codeRepositoryReader: async () => "github.com/EXAMPLE/REPOSITORY",
     controlRepositoryReader: async () => ({ id: currentControlIdentity, isPrivate: currentControlPrivate }),
+    clock: () => now,
   });
   const approval = approvalFor(intent, "publish-release");
   await runGit({ args: ["tag", intent.tag, head], cwd: fixture.seed });
@@ -345,6 +371,31 @@ test("release planning binds merged PR proof after exact validation and terminal
     remoteRepositoryReader,
     now,
   }), /does not match origin example\/repository/);
+  const driftReadyManager = new ReviewCycleManager({
+    store,
+    ledger: reviewLedger,
+    provider: readyProvider({ head, base: parent }),
+    repositoryId: "github.com/example/repository",
+    owner: "example",
+    repo: "repository",
+  });
+  assert.equal((await driftReadyManager.sync({ number: 9, actor: "test", now })).cycle.status, "ready");
+  await assert.rejects(planRelease({
+    repoPath: fixture.seed,
+    repositoryId: "github.com/example/repository",
+    owner: "example",
+    repo: "repository",
+    number: 9,
+    version: "2.0.0",
+    notesPath,
+    token: "test-token",
+    commandRunner,
+    preflightRunner: async () => ({ status: "ready", checks: [] }),
+    githubProvider: mergedProvider({ head, base: parent }),
+    remoteRepositoryReader,
+    now,
+  }), /review cycle 9 head/);
+  assert.equal((await readyManager.sync({ number: 9, actor: "test", now })).cycle.status, "ready");
   const intent = await planRelease({
     repoPath: fixture.seed,
     repositoryId: "github.com/example/repository",

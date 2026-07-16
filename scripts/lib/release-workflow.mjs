@@ -17,11 +17,12 @@ import { NativeGitStore } from "../providers/native-git-store.mjs";
 const PHASES = ["verify", "control-refs", "tag", "github-release"];
 
 export class ReleaseExecutor {
-  constructor({ repoPath, stateRoot, actions, lockRunner = withOperationLock }) {
+  constructor({ repoPath, stateRoot, actions, lockRunner = withOperationLock, clock = () => new Date() }) {
     this.repoPath = repoPath;
     this.stateRoot = stateRoot;
     this.actions = actions;
     this.lockRunner = lockRunner;
+    this.clock = clock;
   }
 
   static async open({
@@ -32,6 +33,7 @@ export class ReleaseExecutor {
     remoteRefReader = readRemoteRefOid,
     codeRepositoryReader = codeGitHubRemoteRepository,
     controlRepositoryReader = privateGitHubRemoteRepository,
+    clock = () => new Date(),
   } = {}) {
     const store = await NativeGitStore.open(resolve(repoPath));
     const common = (await runGit({ args: ["rev-parse", "--git-common-dir"], cwd: store.repoPath })).stdout.trim();
@@ -40,10 +42,10 @@ export class ReleaseExecutor {
       : resolve(stateRoot);
     if (stateRoot !== null) assertExternalStateRoot(store.repoPath, await canonicalProspectivePath(root));
     const actions = new ReleaseActions({ store, ghBinary, commandRunner, remoteRefReader, codeRepositoryReader, controlRepositoryReader });
-    return new ReleaseExecutor({ repoPath: store.repoPath, stateRoot: root, actions });
+    return new ReleaseExecutor({ repoPath: store.repoPath, stateRoot: root, actions, clock });
   }
 
-  async execute({ intent, approval, now = new Date() }) {
+  async execute({ intent, approval, now = this.clock() }) {
     validateReleaseIntent(intent);
     validateReleaseApproval(approval, intent, { now });
     return this.lockRunner({
@@ -62,8 +64,10 @@ export class ReleaseExecutor {
     const verification = state.phases.find((entry) => entry.id === "verify");
     state = await executePhase({ state, current: verification, phase: "verify", path, actions: this.actions, intent, approval, now });
     for (const phase of PHASES.slice(1)) {
+      const phaseNow = this.clock();
+      validateReleaseApproval(approval, intent, { now: phaseNow });
       const current = state.phases.find((entry) => entry.id === phase);
-      state = await executePhase({ state, current, phase, path, actions: this.actions, intent, approval, now });
+      state = await executePhase({ state, current, phase, path, actions: this.actions, intent, approval, now: phaseNow });
     }
     await completeRelease(path, state);
     return releaseResult(state, path);

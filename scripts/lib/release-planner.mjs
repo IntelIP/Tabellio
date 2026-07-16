@@ -59,7 +59,18 @@ export async function planRelease({
     now,
   });
   const provider = await resolveGitHubProvider({ githubProvider, apiUrl, token, ghBinary, commandRunner, cwd: store.repoPath });
-  await assertMergedReview({ store, validationLedger, provider, repositoryId, owner, repo, number, runnerId, now });
+  await assertMergedReview({
+    store,
+    validationLedger,
+    provider,
+    repositoryId,
+    owner,
+    repo,
+    number,
+    pullRequestHead,
+    runnerId,
+    now,
+  });
   const controlIntent = await planControlPublication({ store, repositoryId, controlRemote, now });
   return createReleaseIntent({
     repository: { id: repositoryId, owner, name: repo },
@@ -196,7 +207,7 @@ async function resolveGitHubProvider({ githubProvider, apiUrl, token, ghBinary, 
   return new GitHubProvider({ baseUrl: apiUrl, token: resolvedToken });
 }
 
-async function assertMergedReview({ store, validationLedger, provider, repositoryId, owner, repo, number, runnerId, now }) {
+async function assertMergedReview({ store, validationLedger, provider, repositoryId, owner, repo, number, pullRequestHead, runnerId, now }) {
   const reviewLedger = await GitJsonLedger.open({ repoPath: store.repoPath, ref: "refs/tabellio/reviews" });
   const manager = new ReviewCycleManager({
     store,
@@ -209,7 +220,8 @@ async function assertMergedReview({ store, validationLedger, provider, repositor
   });
   const review = await manager.sync({ number, actor: runnerId, now });
   if (review.cycle.status !== "merged") throw new Error(`Review cycle ${number} is ${review.cycle.status}, not merged.`);
-  if (!reviewCycleHasReleaseReadiness(review.cycle, review.cycle.changeRequest.headCommit)) {
+  contract.equals(review.cycle.changeRequest.headCommit, pullRequestHead, `review cycle ${number} head`);
+  if (!reviewCycleHasReleaseReadiness(review.cycle, pullRequestHead)) {
     throw new Error(`Review cycle ${number} is not release-ready for the merged pull-request head.`);
   }
 }
