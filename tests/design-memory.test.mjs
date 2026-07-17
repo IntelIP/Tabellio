@@ -81,12 +81,6 @@ test("design memory rejects unsupported fields and ephemeral artifacts", async (
   assert.throws(() => validateVisualBaselineManifest(baselines), /ephemeral file URI/);
 });
 
-test("design memory rejects duplicate surface matrix dimensions", async () => {
-  const profile = JSON.parse(await readFile(`${root}/examples/tabellio-design-memory/product.design.json`, "utf8"));
-  profile.policy.surfaces[0].viewports.push(profile.policy.surfaces[0].viewports[0]);
-  assert.throws(() => validateProductDesignProfile(profile), /viewports must contain unique entries/);
-});
-
 test("design memory blocks when a canonical source drifts", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "tabellio-design-memory-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -111,4 +105,10 @@ test("design memory blocks when a canonical source drifts", async (t) => {
   const result = await inspectDesignMemory({ repo: directory, profile: "product.design.json" });
   assert.equal(result.status, "blocked");
   assert.match(result.blockers.join("\n"), /source digest mismatch/);
+});
+
+test("design memory rejects duplicate surface matrix dimensions", async () => {
+  const profile = JSON.parse(await readFile(`${root}/examples/tabellio-design-memory/product.design.json`, "utf8"));
+  profile.policy.surfaces[0].viewports.push(profile.policy.surfaces[0].viewports[0]);
+  assert.throws(() => validateProductDesignProfile(profile), /viewports must contain unique entries/);
 });
