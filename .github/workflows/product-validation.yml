@@ -24,11 +24,15 @@ jobs:
       - name: Validate exact candidate
         run: |
           set -o pipefail
+          base_ref=origin/main
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            base_ref=HEAD^
+          fi
           install -m 755 scripts/tabellio-validator.mjs "$RUNNER_TEMP/tabellio-validator"
           PATH="$RUNNER_TEMP:$PATH" node scripts/tabellio-validate.mjs gate \
             --repo . \
             --repo-id IntelIP/Tabellio \
-            --base origin/main \
+            --base "$base_ref" \
             --commit HEAD \
             --manifest tabellio.validation.json | tee tabellio-validation-result.json
       - name: Upload validation result
