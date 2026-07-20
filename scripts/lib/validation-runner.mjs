@@ -71,17 +71,23 @@ export class ValidationRunner {
       ? manifest.commands
       : manifest.validators;
     let execution = null;
+    let worktreeAdded = false;
     try {
       await runGit({ args: ["worktree", "add", "--detach", workspace, revision.headCommit], cwd: this.store.repoPath });
+      worktreeAdded = true;
       await mkdir(resolve(home, "tmp"), { recursive: true });
       execution = await runValidationDefinitions({ manifest, definitions, workspace, home });
     } finally {
-      await runGit({
-        args: ["worktree", "remove", "--force", workspace],
-        cwd: this.store.repoPath,
-        acceptableExitCodes: [0, 128],
-      });
-      await removeGeneratedTree(sessionRoot);
+      try {
+        if (worktreeAdded) {
+          await runGit({
+            args: ["worktree", "remove", "--force", workspace],
+            cwd: this.store.repoPath,
+          });
+        }
+      } finally {
+        await removeGeneratedTree(sessionRoot);
+      }
     }
     const completedAt = new Date().toISOString();
     const result = buildValidationResult({

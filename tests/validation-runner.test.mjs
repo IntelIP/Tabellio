@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -104,10 +104,7 @@ test("validation runner accepts external workspace roots and rejects repository-
     command("external-home", [process.execPath, "-e", "process.stdout.write(process.env.HOME)"]),
   ]), null, 2));
   await commit(fixture.seed, "Add external workspace validation", "external-workspace");
-  const store = await NativeGitStore.open(fixture.seed);
-  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
-  const externalRoot = join(fixture.root, "ValidationRoot");
-  await mkdir(externalRoot);
+  const { store, ledger, externalRoot } = await externalValidationHarness(fixture);
   const result = await new ValidationRunner({ store, ledger, workspaceRoot: externalRoot }).run({
     repositoryId: "example/repository",
     commit: "HEAD",
@@ -128,6 +125,12 @@ test("validation runner accepts external workspace roots and rejects repository-
     /outside the repository and Git common directory/,
   );
 
+  const repositoryRoot = new ValidationRunner({ store, ledger, workspaceRoot: fixture.seed });
+  await assert.rejects(
+    repositoryRoot.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" }),
+    /outside the repository and Git common directory/,
+  );
+
   const gitAlias = join(fixture.root, "GitAlias");
   await symlink(join(fixture.seed, ".git"), gitAlias);
   const canonicalGitAlias = new ValidationRunner({ store, ledger, workspaceRoot: gitAlias });
@@ -135,6 +138,35 @@ test("validation runner accepts external workspace roots and rejects repository-
     canonicalGitAlias.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" }),
     /outside the repository and Git common directory/,
   );
+
+  const repositoryAlias = join(fixture.root, "RepositoryAlias");
+  await symlink(fixture.seed, repositoryAlias);
+  const canonicalRepositoryAlias = new ValidationRunner({ store, ledger, workspaceRoot: repositoryAlias });
+  await assert.rejects(
+    canonicalRepositoryAlias.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" }),
+    /outside the repository and Git common directory/,
+  );
+});
+
+test("validation runner blocks result publication when Git worktree cleanup fails", async (t) => {
+  const fixture = await createFeatureFixture(t);
+  await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(manifest([
+    command("break-worktree-registration", [process.execPath, "-e", 'require("node:fs").unlinkSync(".git")']),
+  ]), null, 2));
+  await commit(fixture.seed, "Add cleanup failure validation", "cleanup-failure");
+  const validationHead = await head(fixture.seed);
+  const { store, ledger, externalRoot } = await externalValidationHarness(fixture);
+
+  await assert.rejects(
+    new ValidationRunner({ store, ledger, workspaceRoot: externalRoot }).run({
+      repositoryId: "example/repository",
+      commit: validationHead,
+      base: "main",
+    }),
+    /git worktree remove --force .* failed with exit code 128/,
+  );
+  assert.equal(await latestValidationResult(ledger, validationHead), null);
+  assert.deepEqual(await readdir(externalRoot), []);
 });
 
 test("validation manifest rejects shell-like ambiguity and missing checkpoint ranges", async (t) => {
@@ -457,6 +489,14 @@ async function commit(cwd, message, checkpoint) {
     cwd,
     env: identityEnv(),
   });
+}
+
+async function externalValidationHarness(fixture) {
+  const store = await NativeGitStore.open(fixture.seed);
+  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
+  const externalRoot = join(fixture.root, "ValidationRoot");
+  await mkdir(externalRoot);
+  return { store, ledger, externalRoot };
 }
 
 async function head(cwd) {
