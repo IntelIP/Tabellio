@@ -53,6 +53,17 @@ export async function readRemoteRefOid({ repoPath, remote, ref }) {
   return parseRemoteRefOutput(result.stdout, remote, ref);
 }
 
+export async function readRemoteRefs({ repoPath, remote, prefix }) {
+  assertSafeRemoteName(remote);
+  assertSafeGitRefPrefix(prefix);
+  const result = await runGit({
+    args: ["ls-remote", "--refs", remote, `${prefix}*`],
+    cwd: repoPath,
+    timeoutMs: 15 * 60 * 1000,
+  });
+  return new Map(remoteOutputRows(result.stdout).map((row) => parseRemoteRefRow(row, remote, prefix)));
+}
+
 async function effectiveRemoteUrls(repoPath, remote, push) {
   const result = await runGit({
     args: ["remote", "get-url", ...(push ? ["--push"] : []), "--all", remote],
@@ -115,6 +126,11 @@ function assertSafeGitRef(ref) {
   if (ref.includes("..")) throw new Error("ref must be a safe fully qualified Git ref.");
 }
 
+function assertSafeGitRefPrefix(prefix) {
+  if (!prefix.endsWith("/")) throw new Error("ref prefix must end with /.");
+  assertSafeGitRef(`${prefix}placeholder`);
+}
+
 function parseRemoteRefOutput(source, remote, ref) {
   const rows = remoteOutputRows(source);
   if (rows.length !== 1) throw new Error(`Remote ${remote} returned ${rows.length} values for ${ref}.`);
@@ -122,6 +138,17 @@ function parseRemoteRefOutput(source, remote, ref) {
   if (actualRef !== ref) throw new Error(`Remote ${remote} returned an invalid value for ${ref}.`);
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid)) throw new Error(`Remote ${remote} returned an invalid value for ${ref}.`);
   return oid;
+}
+
+function parseRemoteRefRow(row, remote, prefix) {
+  const [oid, ref, ...extra] = row.split(/\s+/);
+  if (extra.length > 0 || !ref?.startsWith(prefix)) {
+    throw new Error(`Remote ${remote} returned an invalid value for ${prefix}.`);
+  }
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid)) {
+    throw new Error(`Remote ${remote} returned an invalid value for ${ref}.`);
+  }
+  return [ref, oid];
 }
 
 function remoteOutputRows(source) {

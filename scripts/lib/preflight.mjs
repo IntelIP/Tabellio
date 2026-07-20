@@ -9,6 +9,7 @@ import { contract } from "./contract-checks.mjs";
 import {
   effectiveGitHubRepository,
   readRemoteRefOid,
+  readRemoteRefs,
   sameGitHubRepository,
 } from "./github-repository.mjs";
 import { validatePlatformConfig } from "./platform-config.mjs";
@@ -34,9 +35,12 @@ export async function runPreflight({
   commandRunner = runExternalCommand,
   controlRemote = null,
   remoteRefReader = readRemoteRefOid,
+  remoteRefsReader = readRemoteRefs,
   remoteRepositoryReader = effectiveGitHubRepository,
   nodeVersion = process.versions.node,
   codexConfigPath = defaultCodexConfigPath(),
+  codexRequirementsPath = defaultCodexRequirementsPath(),
+  entireCheckpointsPrimary = process.env.ENTIRE_CHECKPOINTS_PRIMARY ?? null,
   now = new Date(),
 } = {}) {
   if (!PROFILES.has(profile)) throw new Error("profile must be agent or release.");
@@ -80,21 +84,18 @@ export async function runPreflight({
   });
 
   await record(checks, "entire-metadata", () => store
-    ? checkEntireMetadataBranches(store, remoteRefReader, profile)
+    ? checkEntireMetadata(store, { remoteRefReader, remoteRefsReader, profile, entireCheckpointsPrimary })
     : blocked("Entire metadata storage could not be inspected.", "Open a Git repository, then rerun preflight."));
 
   await record(checks, "codex-config", async () => {
-    const result = await commandRunner({
-      binary: codexBinary,
-      args: ["features", "list"],
+    const result = await checkCodexConfig({
+      commandRunner,
+      codexBinary,
       cwd: store?.repoPath ?? resolvedRepo,
-      timeoutMs: 30_000,
+      codexRequirementsPath,
     });
-    if (!/^hooks\s+\S+\s+true\s*$/m.test(result.stdout)) {
-      return blocked("Codex hooks are disabled in the effective configuration.", "Enable Codex hooks, then rerun preflight.");
-    }
-    codexConfigReady = true;
-    return passed("Codex configuration is valid and hooks are effectively enabled.");
+    codexConfigReady = result.status === "passed";
+    return result;
   });
 
   await record(checks, "codex-hook-trust", () => codexConfigReady
@@ -131,13 +132,76 @@ async function checkCodexHookTrust({ repoPath, codexConfigPath }) {
   return codexHookTrustResult(expected, states);
 }
 
+async function checkCodexConfig({ commandRunner, codexBinary, cwd, codexRequirementsPath }) {
+  const result = await commandRunner({
+    binary: codexBinary,
+    args: ["features", "list"],
+    cwd,
+    timeoutMs: 30_000,
+  });
+  if (!/^hooks\s+\S+\s+true\s*$/m.test(result.stdout)) {
+    return blocked("Codex hooks are disabled in the effective configuration.", "Enable Codex hooks, then rerun preflight.");
+  }
+  if (await codexManagedHooksOnly(codexRequirementsPath)) {
+    return blocked("Codex managed-only hook policy excludes repository hooks.", "Allow project hooks or install the required Entire hooks in managed Codex policy, then rerun preflight.");
+  }
+  return passed("Codex configuration is valid and hooks are effectively enabled.");
+}
+
+async function codexManagedHooksOnly(requirementsPath) {
+  const source = await readFile(requirementsPath, "utf8").catch((error) => {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  });
+  if (source === null) return false;
+  return tomlBooleanAssignment(source, "allow_managed_hooks_only") === true;
+}
+
 function codexHookConfigBlocker(config, canonicalRepo) {
   return codexProjectTrusted(config, canonicalRepo)
     ? null
     : blocked("The repository project layer is not trusted by Codex.", "Trust this repository in Codex, then rerun preflight.");
 }
 
-async function checkEntireMetadataBranches(store, remoteRefReader, profile) {
+async function checkEntireMetadata(store, options) {
+  const backend = await configuredEntireBackend(store.repoPath, options.entireCheckpointsPrimary);
+  if (backend === "git-refs") return checkEntireMetadataRefs(store, options.remoteRefsReader, options.profile);
+  if (backend !== "git-branch") throw new Error(`Unsupported Entire checkpoint backend: ${backend}.`);
+  return checkEntireMetadataBranch(store, options.remoteRefReader, options.profile);
+}
+
+async function configuredEntireBackend(repoPath, override) {
+  if (validBackendOverride(override)) return override.trim();
+  const [local, project] = await Promise.all([
+    readJsonIfExists(resolve(repoPath, ".entire", "settings.local.json")),
+    readJsonIfExists(resolve(repoPath, ".entire", "settings.json")),
+  ]);
+  return firstCheckpointBackend(local, project);
+}
+
+function validBackendOverride(value) {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function firstCheckpointBackend(...settings) {
+  return settings.map(checkpointBackend).find(Boolean) ?? "git-branch";
+}
+
+function checkpointBackend(settings) {
+  const checkpoints = settings == null ? null : settings.checkpoints;
+  const primary = checkpoints == null ? null : checkpoints.primary;
+  return primary == null ? null : primary.type;
+}
+
+async function readJsonIfExists(path) {
+  const source = await readFile(path, "utf8").catch((error) => {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  });
+  return source === null ? null : JSON.parse(source);
+}
+
+async function checkEntireMetadataBranch(store, remoteRefReader, profile) {
   const platform = await readPlatformConfig(store);
   const localRef = platform.ledger.checkpointRef;
   if (!(await store.hasRef(localRef))) {
@@ -153,6 +217,93 @@ async function checkEntireMetadataBranches(store, remoteRefReader, profile) {
     return blocked("The live remote Entire metadata branch is ahead, divergent, or disconnected from local metadata.", "Fetch and reconcile the checkpoint metadata branch explicitly, then rerun preflight.");
   }
   return checkEntireMetadataContents(store, localRef, { allowEmpty: profile === "agent" });
+}
+
+async function checkEntireMetadataRefs(store, remoteRefsReader, profile) {
+  const platform = await readPlatformConfig(store);
+  const prefix = "refs/entire/checkpoints/";
+  const [local, remote] = await Promise.all([
+    listLocalCheckpointRefs(store, prefix),
+    remoteRefsReader({ repoPath: store.repoPath, remote: platform.workflow.controlRemoteName, prefix }),
+  ]);
+  const emptyResult = emptyCheckpointRefsResult(local, remote, profile);
+  if (emptyResult) return emptyResult;
+  const remoteBlocker = await remoteCheckpointRefsBlocker(store, local, remote);
+  if (remoteBlocker) return remoteBlocker;
+  const invalidRef = await firstInvalidCheckpointRef(store, local.keys(), prefix);
+  return checkpointRefsResult(invalidRef);
+}
+
+function emptyCheckpointRefsResult(local, remote, profile) {
+  if (local.size !== 0 || remote.size !== 0) return null;
+  return emptyMetadataResult([], profile === "agent");
+}
+
+function checkpointRefsResult(invalidRef) {
+  return invalidRef
+    ? blocked(`Entire checkpoint metadata is invalid: ${invalidRef}.`, "Repair the checkpoint ref explicitly, then rerun preflight.")
+    : passed("Live remote Entire checkpoint refs are contained locally and checkpoint contents are valid.");
+}
+
+async function remoteCheckpointRefsBlocker(store, local, remote) {
+  for (const [ref, remoteOid] of remote) {
+    const result = await remoteCheckpointRefBlocker(store, ref, remoteOid, local.get(ref));
+    if (result) return result;
+  }
+  return null;
+}
+
+async function remoteCheckpointRefBlocker(store, ref, remoteOid, localOid) {
+  if (!localOid) {
+    return blocked(`Live remote Entire checkpoint ref is not available locally: ${ref}.`, "Fetch the checkpoint refs, then rerun preflight.");
+  }
+  const remoteObject = await store.resolveRef(remoteOid).catch(() => null);
+  if (!remoteObject) {
+    return blocked(`Live remote Entire checkpoint commit is not available locally: ${ref}.`, "Fetch the checkpoint refs, then rerun preflight.");
+  }
+  if (!(await store.isAncestor(remoteOid, localOid))) {
+    return blocked(`Live remote Entire checkpoint ref is ahead, divergent, or disconnected: ${ref}.`, "Fetch and reconcile the checkpoint ref explicitly, then rerun preflight.");
+  }
+  return null;
+}
+
+async function firstInvalidCheckpointRef(store, refs, prefix) {
+  for (const ref of refs) {
+    const checkpointId = checkpointIdFromRef(ref, prefix);
+    if (!checkpointId || !(await validCheckpointRefContents(store, ref, checkpointId))) return ref;
+  }
+  return null;
+}
+
+async function listLocalCheckpointRefs(store, prefix) {
+  const result = await runGit({
+    args: ["for-each-ref", "--format=%(refname)%00%(objectname)", prefix],
+    cwd: store.repoPath,
+  });
+  return new Map(result.stdout.split(/\r?\n/).filter(Boolean).map((row) => row.split("\0")));
+}
+
+function checkpointIdFromRef(ref, prefix) {
+  if (!ref.startsWith(prefix)) return null;
+  const match = ref.slice(prefix.length).match(/^([^/]+)\/([^/]+)$/);
+  if (!match) return null;
+  const [, shard, checkpointId] = match;
+  return validCheckpointRefName(shard, checkpointId) ? checkpointId : null;
+}
+
+function validCheckpointRefName(shard, checkpointId) {
+  return validCheckpointId(checkpointId) && shard === checkpointId.slice(-2);
+}
+
+function validCheckpointId(value) {
+  return /^[0-9a-f]{12}$/.test(value) || /^[0-9A-HJKMNP-TV-Z]{26}$/.test(value);
+}
+
+async function validCheckpointRefContents(store, ref, checkpointId) {
+  const files = await store.listFiles(ref);
+  if (!files.includes("metadata.json")) return false;
+  const result = await runGit({ args: ["show", `${ref}:metadata.json`], cwd: store.repoPath, gitDir: store.gitDir });
+  return validCheckpointMetadata(JSON.parse(result.stdout), "metadata.json", new Set(files), checkpointId);
 }
 
 async function checkEntireMetadataContents(store, localRef, { allowEmpty }) {
@@ -185,9 +336,9 @@ async function firstInvalidMetadataPath(store, localRef, metadataPaths, files) {
   return null;
 }
 
-function validCheckpointMetadata(metadata, path, files) {
+function validCheckpointMetadata(metadata, path, files, explicitCheckpointId = null) {
   const prefix = path.slice(0, -"metadata.json".length);
-  const checkpointId = prefix.replaceAll("/", "");
+  const checkpointId = explicitCheckpointId ?? prefix.replaceAll("/", "");
   if (!validCheckpointEnvelope(metadata, checkpointId)) return false;
   return metadata.sessions.every((session) => validCheckpointSession(session, prefix, files));
 }
@@ -298,8 +449,10 @@ function codexHookStates(config) {
 
 function hookStateEntry(section) {
   const digest = tomlStringAssignment(section.body, "trusted_hash");
+  const enabledSource = tomlAssignment(section.body, "enabled");
+  const enabled = enabledSource === null ? true : tomlBooleanAssignment(section.body, "enabled");
   return [[section.key, {
-    enabled: tomlBooleanAssignment(section.body, "enabled") !== false,
+    enabled,
     trustedHash: /^sha256:[a-f0-9]{64}$/.test(digest ?? "") ? digest : null,
   }]];
 }
@@ -363,6 +516,13 @@ function stripTomlComment(line) {
 
 function defaultCodexConfigPath() {
   return resolve(process.env.CODEX_HOME || resolve(homedir(), ".codex"), "config.toml");
+}
+
+function defaultCodexRequirementsPath() {
+  if (process.platform === "win32") {
+    return resolve(process.env.ProgramData || "C:\\ProgramData", "OpenAI", "Codex", "requirements.toml");
+  }
+  return "/etc/codex/requirements.toml";
 }
 
 export function validatePreflightResult(value) {

@@ -83,6 +83,15 @@ test("preflight requires active hooks and a trusted project layer", async (t) =>
   await writeFile(fixture.codexConfigPath, `${config}\n${tomlTable("hooks.state", `${canonicalHooksPath}:stop:0:1`)}\ntrusted_hash = "${FIXTURE_HOOK_HASHES.stop}"\n`);
   const duplicate = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
   assert.equal(duplicate.checks.find((check) => check.id === "codex-hook-trust").status, "passed");
+
+  await writeCodexTrust(fixture, Object.keys(FIXTURE_HOOK_HASHES), { malformedEnabledEvent: "stop" });
+  const malformedState = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assert.match(malformedState.checks.find((check) => check.id === "codex-hook-trust").detail, /stop/);
+
+  await writeFile(fixture.codexRequirementsPath, "allow_managed_hooks_only = true\n");
+  const managedOnly = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assert.match(managedOnly.checks.find((check) => check.id === "codex-config").detail, /managed-only/);
+  assert.match(managedOnly.checks.find((check) => check.id === "codex-hook-trust").detail, /unproven/);
 });
 
 test("preflight verifies Entire metadata ancestry without repairing it", async (t) => {
@@ -145,6 +154,37 @@ test("preflight verifies Entire metadata ancestry without repairing it", async (
   assert.equal(emptyAgent.checks.find((check) => check.id === "entire-metadata").status, "passed");
   const emptyRelease = await runPreparedPreflight(fixture, { profile: "release", commandRunner: fakeCommands() });
   assert.match(emptyRelease.checks.find((check) => check.id === "entire-metadata").detail, /no checkpoint metadata/);
+});
+
+test("preflight verifies the configured Entire git-refs checkpoint backend", async (t) => {
+  const fixture = await preparedFixture(t);
+  await mkdir(join(fixture.seed, ".entire"), { recursive: true });
+  await writeFile(join(fixture.seed, ".entire", "settings.json"), JSON.stringify({
+    checkpoints: { primary: { type: "git-refs" } },
+  }));
+  const checkpointId = "abcdef123456";
+  const ref = `refs/entire/checkpoints/${checkpointId.slice(-2)}/${checkpointId}`;
+  const metadataPath = join(fixture.seed, "ab", "cdef123456", "metadata.json");
+  const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+  metadata.sessions = metadata.sessions.map((session) => Object.fromEntries(Object.entries(session)
+    .map(([key, value]) => [key, value.replace("/ab/cdef123456", "")])));
+  await writeFile(metadataPath, JSON.stringify(metadata));
+  await runGit({ args: ["add", "--", "ab/cdef123456/metadata.json"], cwd: fixture.seed });
+  await runGit({ args: ["commit", "-m", "Prepare ref checkpoint"], cwd: fixture.seed, env: identityEnv() });
+  const tree = (await runGit({ args: ["rev-parse", "HEAD:ab/cdef123456"], cwd: fixture.seed })).stdout.trim();
+  const commit = (await runGit({
+    args: ["commit-tree", tree, "-m", "Store ref checkpoint"],
+    cwd: fixture.seed,
+    env: identityEnv(),
+  })).stdout.trim();
+  await runGit({ args: ["update-ref", ref, commit], cwd: fixture.seed });
+  fixture.liveCheckpointRefs = new Map([[ref, commit]]);
+  const result = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assert.equal(result.checks.find((check) => check.id === "entire-metadata").status, "passed");
+
+  fixture.liveCheckpointRefs = new Map([[ref, "f".repeat(40)]]);
+  const unfetched = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assert.match(unfetched.checks.find((check) => check.id === "entire-metadata").detail, /not available locally/);
 });
 
 test("preflight uses the repository root and rejects invalid Codex configuration", async (t) => {
@@ -255,6 +295,7 @@ async function preparedFixture(t) {
   await mkdir(join(fixture.seed, ".codex"), { recursive: true });
   await writeEntireHooks(fixture.seed, (command) => `entire hooks codex ${command}`);
   fixture.codexConfigPath = join(fixture.root, "codex-config.toml");
+  fixture.codexRequirementsPath = join(fixture.root, "requirements.toml");
   await writeCodexTrust(fixture, ["session_start", "user_prompt_submit", "stop", "post_tool_use"]);
   await writeFile(join(fixture.seed, "tabellio.platform.json"), JSON.stringify(platformFixture()));
   const checkpointDir = join(fixture.seed, "ab", "cdef123456");
@@ -282,7 +323,9 @@ async function runPreparedPreflight(fixture, options = {}) {
   return runPreflight({
     repoPath: fixture.seed,
     codexConfigPath: fixture.codexConfigPath,
+    codexRequirementsPath: fixture.codexRequirementsPath,
     remoteRefReader: async () => fixture.liveControlOid,
+    remoteRefsReader: async () => fixture.liveCheckpointRefs ?? new Map(),
     ...options,
   });
 }
@@ -302,6 +345,7 @@ async function writeCodexTrust(fixture, events, {
   literalKeys = false,
   hooksComment = false,
   disabledEvent = null,
+  malformedEnabledEvent = null,
 } = {}) {
   const repoPath = await realpath(fixture.seed);
   const hooksPath = join(repoPath, ".codex", "hooks.json");
@@ -309,6 +353,7 @@ async function writeCodexTrust(fixture, events, {
     tomlTable("hooks.state", `${hooksPath}:${event}:0:0`, { encode: encodeKeys, literal: literalKeys }),
     `trusted_hash = "${digest ?? FIXTURE_HOOK_HASHES[event]}"`,
     ...(event === disabledEvent ? ["enabled = false"] : []),
+    ...(event === malformedEnabledEvent ? ['enabled = "false"'] : []),
   ].join("\n"));
   const config = [
     "[features]",
