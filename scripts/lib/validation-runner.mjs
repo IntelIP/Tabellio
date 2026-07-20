@@ -79,7 +79,7 @@ export class ValidationRunner {
       execution = await runValidationDefinitions({ manifest, definitions, workspace, home });
     } finally {
       try {
-        if (worktreeAdded) {
+        if (worktreeAdded || await registeredWorktree(this.store.repoPath, workspace)) {
           await runGit({
             args: ["worktree", "remove", "--force", workspace],
             cwd: this.store.repoPath,
@@ -110,6 +110,11 @@ export class ValidationRunner {
     const written = await writeResultWithRetry(this.ledger, path, result);
     return { result, path, version: written.version };
   }
+}
+
+async function registeredWorktree(repoPath, workspace) {
+  const listing = await runGit({ args: ["worktree", "list", "--porcelain", "-z"], cwd: repoPath });
+  return listing.stdout.split("\0").includes(`worktree ${workspace}`);
 }
 
 async function validationWorkspaceBase({ repoPath, gitCommonDirectory, configuredRoot }) {

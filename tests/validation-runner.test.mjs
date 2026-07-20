@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -176,6 +176,33 @@ test("validation runner blocks result publication when Git worktree cleanup fail
     }),
     /git worktree remove --force .* failed with exit code 128/,
   );
+  assert.equal(await latestValidationResult(ledger, validationHead), null);
+  assert.deepEqual(await readdir(externalRoot), []);
+});
+
+test("validation runner removes partial registration when Git worktree add fails", async (t) => {
+  const fixture = await createFeatureFixture(t);
+  await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(manifest([
+    command("never-runs", [process.execPath, "-e", "process.exit(0)"]),
+  ]), null, 2));
+  await commit(fixture.seed, "Add partial worktree validation", "partial-worktree-add");
+  const validationHead = await head(fixture.seed);
+  const hook = join(fixture.seed, ".git", "hooks", "post-checkout");
+  await writeFile(hook, "#!/usr/bin/env node\nprocess.exit(1);\n");
+  await chmod(hook, 0o755);
+  const { store, ledger, externalRoot } = await externalValidationHarness(fixture);
+  const before = await runGit({ args: ["worktree", "list", "--porcelain", "-z"], cwd: fixture.seed });
+
+  await assert.rejects(
+    new ValidationRunner({ store, ledger, workspaceRoot: externalRoot }).run({
+      repositoryId: "example/repository",
+      commit: validationHead,
+      base: "main",
+    }),
+    /git worktree add --detach .* failed with exit code 1/,
+  );
+  const after = await runGit({ args: ["worktree", "list", "--porcelain", "-z"], cwd: fixture.seed });
+  assert.equal(after.stdout, before.stdout);
   assert.equal(await latestValidationResult(ledger, validationHead), null);
   assert.deepEqual(await readdir(externalRoot), []);
 });
