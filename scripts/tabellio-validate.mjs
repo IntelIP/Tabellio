@@ -16,7 +16,11 @@ try {
     ref: options.ledgerRef ?? "refs/tabellio/validations",
   });
   if (["run", "gate"].includes(options.command)) {
-    const runner = new ValidationRunner({ store, ledger });
+    const runner = new ValidationRunner({
+      store,
+      ledger,
+      workspaceRoot: options.workspaceRoot ? resolve(options.workspaceRoot) : null,
+    });
     const result = await runner.run({
       repositoryId: await repositoryIdentity(store, options.repoId),
       commit: options.commit ?? "HEAD",
@@ -38,8 +42,8 @@ try {
 
 function parseArgs(args) {
   return parseCommandOptions(args, {
-    run: ["repo", "repoId", "commit", "base", "manifest", "runnerId", "ledgerRef"],
-    gate: ["repo", "repoId", "commit", "base", "manifest", "runnerId", "ledgerRef"],
+    run: ["repo", "repoId", "commit", "base", "manifest", "runnerId", "ledgerRef", "workspaceRoot"],
+    gate: ["repo", "repoId", "commit", "base", "manifest", "runnerId", "ledgerRef", "workspaceRoot"],
     latest: ["repo", "commit", "ledgerRef"],
   });
 }

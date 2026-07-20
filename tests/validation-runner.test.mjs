@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { rm, writeFile } from "node:fs/promises";
+import { mkdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
 
 import { GitJsonLedger } from "../scripts/lib/git-json-ledger.mjs";
@@ -13,7 +14,7 @@ import {
   validateValidatorEvidence,
 } from "../scripts/lib/validation-runner.mjs";
 import { NativeGitStore } from "../scripts/providers/native-git-store.mjs";
-import { createFixture, identityEnv } from "./helpers/git-fixture.mjs";
+import { createFeatureFixture, identityEnv } from "./helpers/git-fixture.mjs";
 
 test("validation runner executes exact committed manifests and stores bounded results", async (t) => {
   const previousArtifactBaseUri = process.env.TABELLIO_ARTIFACT_BASE_URI;
@@ -26,13 +27,11 @@ test("validation runner executes exact committed manifests and stores bounded re
     if (previousTestSecret === undefined) delete process.env.TABELLIO_TEST_SECRET;
     else process.env.TABELLIO_TEST_SECRET = previousTestSecret;
   });
-  const fixture = await createFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const fixture = await createFeatureFixture(t);
   const manifestPath = `${fixture.seed}/tabellio.validation.json`;
   await writeFile(manifestPath, JSON.stringify(manifest([
     command("tests", [process.execPath, "-e", 'process.stdout.write("x".repeat(20000))']),
-    command("isolated-home", [process.execPath, "-e", 'if (!process.env.HOME.includes("validation-workspaces")) process.exit(2)']),
+    command("isolated-home", [process.execPath, "-e", 'if (!process.env.HOME.includes("TabellioValidation-") || process.env.HOME.includes(".git")) process.exit(2);process.stdout.write(process.env.HOME)']),
     command("artifact-uri", [process.execPath, "-e", 'if (process.env.TABELLIO_ARTIFACT_BASE_URI !== "artifact+test://validation/run/") process.exit(2)']),
     command("secret-isolated", [process.execPath, "-e", 'if (process.env.TABELLIO_TEST_SECRET !== undefined) process.exit(2)']),
     command("readonly-cache", [process.execPath, "-e", 'const fs=require("node:fs");const p=process.env.HOME+"/go/pkg/mod/example/.github";fs.mkdirSync(p,{recursive:true});fs.chmodSync(p,0o500);fs.chmodSync(process.env.HOME+"/go/pkg/mod/example",0o500)']),
@@ -57,6 +56,9 @@ test("validation runner executes exact committed manifests and stores bounded re
   assert.equal(passed.result.commands[0].stdout.truncated, true);
   assert.equal(Buffer.byteLength(passed.result.commands[0].stdout.tail), 16 * 1024);
   assert.equal(passed.result.commands[1].status, "passed");
+  const isolatedHome = passed.result.commands[1].stdout.tail;
+  assert.match(isolatedHome, /TabellioValidation-[^/]+\/Home$/);
+  assert.equal(await stat(isolatedHome).catch((error) => error.code), "ENOENT");
   assert.equal(passed.result.commands[2].status, "passed");
   assert.equal(passed.result.commands[3].status, "passed");
   assert.equal(passed.result.commands[4].status, "passed");
@@ -96,6 +98,45 @@ test("validation runner executes exact committed manifests and stores bounded re
   assert.equal(status.stdout, "");
 });
 
+test("validation runner accepts external workspace roots and rejects repository-internal roots", async (t) => {
+  const fixture = await createFeatureFixture(t);
+  await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(manifest([
+    command("external-home", [process.execPath, "-e", "process.stdout.write(process.env.HOME)"]),
+  ]), null, 2));
+  await commit(fixture.seed, "Add external workspace validation", "external-workspace");
+  const store = await NativeGitStore.open(fixture.seed);
+  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
+  const externalRoot = join(fixture.root, "ValidationRoot");
+  await mkdir(externalRoot);
+  const result = await new ValidationRunner({ store, ledger, workspaceRoot: externalRoot }).run({
+    repositoryId: "example/repository",
+    commit: "HEAD",
+    base: "main",
+  });
+  assert.equal(result.result.status, "passed");
+  const isolatedHome = result.result.commands[0].stdout.tail;
+  assert.equal(isolatedHome.startsWith(`${await realpath(externalRoot)}/TabellioValidation-`), true);
+  assert.equal(await stat(isolatedHome).catch((error) => error.code), "ENOENT");
+
+  const repositoryInternal = new ValidationRunner({
+    store,
+    ledger,
+    workspaceRoot: join(fixture.seed, ".git", "tabellio", "validation-workspaces"),
+  });
+  await assert.rejects(
+    repositoryInternal.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" }),
+    /outside the repository and Git common directory/,
+  );
+
+  const gitAlias = join(fixture.root, "GitAlias");
+  await symlink(join(fixture.seed, ".git"), gitAlias);
+  const canonicalGitAlias = new ValidationRunner({ store, ledger, workspaceRoot: gitAlias });
+  await assert.rejects(
+    canonicalGitAlias.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" }),
+    /outside the repository and Git common directory/,
+  );
+});
+
 test("validation manifest rejects shell-like ambiguity and missing checkpoint ranges", async (t) => {
   assert.throws(
     () => validateValidationManifest(manifest([command("escape", ["node", "test.js"], "../outside")])),
@@ -106,9 +147,7 @@ test("validation manifest rejects shell-like ambiguity and missing checkpoint ra
     /1 to 50/,
   );
 
-  const fixture = await createFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const fixture = await createFeatureFixture(t);
   await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(manifest([
     command("tests", [process.execPath, "-e", "process.exit(0)"]),
   ]), null, 2));
@@ -124,9 +163,7 @@ test("validation manifest rejects shell-like ambiguity and missing checkpoint ra
 });
 
 test("validation runner terminates timed-out commands and skips remaining fail-fast work", async (t) => {
-  const fixture = await createFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const fixture = await createFeatureFixture(t);
   await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(manifest([
     command("timeout", [process.execPath, "-e", "setTimeout(() => {}, 5000)"], ".", 150),
     command("must-skip", [process.execPath, "-e", "process.exit(0)"]),
@@ -145,9 +182,7 @@ test("validation runner terminates timed-out commands and skips remaining fail-f
 });
 
 test("typed validators enforce semantic metrics and cost budgets with durable evidence", async (t) => {
-  const fixture = await createFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const fixture = await createFeatureFixture(t);
   const semantic = validatorEvidence("semantic-eval", {
     metrics: [{ name: "strict_pass_rate", value: 0.9, unit: "ratio" }],
     cost: availableCost(0.11, 5, 12),
@@ -208,9 +243,7 @@ test("typed validators enforce semantic metrics and cost budgets with durable ev
 });
 
 test("typed validation distinguishes product failure from blocked evidence", async (t) => {
-  const fixture = await createFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const fixture = await createFeatureFixture(t);
   const weakEvidence = validatorEvidence("semantic-eval", {
     metrics: [{ name: "strict_pass_rate", value: 0.2, unit: "ratio" }],
     cost: availableCost(0.6, 1, 2),
@@ -259,9 +292,7 @@ test("typed validation distinguishes product failure from blocked evidence", asy
 });
 
 test("typed validation preserves failure and blocked boundaries across validator kinds", async (t) => {
-  const fixture = await createFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const fixture = await createFeatureFixture(t);
   const schemaFailure = validatorEvidence("schema-contract", {
     status: "failed",
     summary: "Structured output included an unsupported field.",

@@ -109,6 +109,8 @@ Use `gate` in CI. It persists the same exact-head result but exits non-zero unle
 tabellio-validate gate --repo . --repo-id owner/repository --base main --commit HEAD --manifest tabellio.validation.json
 ```
 
+Validation worktrees and isolated home directories use private system-temporary sessions. `--workspace-root /absolute/external/path` may select another external parent; repository-internal and `.git/**` paths are rejected.
+
 Keep `origin` limited to ordinary code branches and tags. Configure a separate private GitHub repository under another remote name before publishing control refs. The transport refuses to target `origin`.
 
 Before agent or release work, run:

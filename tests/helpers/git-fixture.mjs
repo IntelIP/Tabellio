@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,6 +32,13 @@ export async function createFixture() {
   await runGit({ args: ["push", "origin", "main"], cwd: seed });
 
   return { root, bare, seed, workspaces, featureCommit, mainCommit };
+}
+
+export async function createFeatureFixture(t) {
+  const fixture = await createFixture();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  return fixture;
 }
 
 export function identityEnv() {

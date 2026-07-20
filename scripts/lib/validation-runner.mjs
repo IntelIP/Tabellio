@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 import { LedgerConflictError } from "./git-json-ledger.mjs";
 import { runGit } from "./git-process.mjs";
@@ -18,9 +19,10 @@ const MAX_OUTPUT_TAIL_BYTES = 16 * 1024;
 const MAX_EVIDENCE_BYTES = 1024 * 1024;
 
 export class ValidationRunner {
-  constructor({ store, ledger }) {
+  constructor({ store, ledger, workspaceRoot = null }) {
     this.store = store;
     this.ledger = ledger;
+    this.workspaceRoot = workspaceRoot;
   }
 
   async run({
@@ -54,11 +56,16 @@ export class ValidationRunner {
 
     const runId = `validation-${randomUUID()}`;
     const common = await runGit({ args: ["rev-parse", "--git-common-dir"], cwd: this.store.repoPath });
-    const workspaceRoot = resolve(this.store.repoPath, common.stdout.trim(), "tabellio", "validation-workspaces");
-    const workspace = resolve(workspaceRoot, runId);
-    const home = resolve(workspaceRoot, `${runId}.home`);
-    await mkdir(workspaceRoot, { recursive: true });
-    if (await stat(workspace).catch(() => null)) throw new Error(`Validation workspace already exists: ${workspace}.`);
+    const gitCommonDirectory = resolve(this.store.repoPath, common.stdout.trim());
+    const workspaceBase = await validationWorkspaceBase({
+      repoPath: this.store.repoPath,
+      gitCommonDirectory,
+      configuredRoot: this.workspaceRoot,
+    });
+    const sessionRoot = await mkdtemp(join(workspaceBase, "TabellioValidation-"));
+    await chmod(sessionRoot, 0o700);
+    const workspace = resolve(sessionRoot, "Workspace");
+    const home = resolve(sessionRoot, "Home");
     const startedAt = now.toISOString();
     const definitions = manifest.schemaVersion === VALIDATION_MANIFEST_SCHEMA_VERSION_V1
       ? manifest.commands
@@ -73,9 +80,8 @@ export class ValidationRunner {
         args: ["worktree", "remove", "--force", workspace],
         cwd: this.store.repoPath,
         acceptableExitCodes: [0, 128],
-      }).catch(() => {});
-      await removeGeneratedTree(workspace);
-      await removeGeneratedTree(home);
+      });
+      await removeGeneratedTree(sessionRoot);
     }
     const completedAt = new Date().toISOString();
     const result = buildValidationResult({
@@ -98,6 +104,28 @@ export class ValidationRunner {
     const written = await writeResultWithRetry(this.ledger, path, result);
     return { result, path, version: written.version };
   }
+}
+
+async function validationWorkspaceBase({ repoPath, gitCommonDirectory, configuredRoot }) {
+  const base = resolve(configuredRoot ?? tmpdir());
+  assertExternalWorkspaceRoot(base, repoPath, gitCommonDirectory);
+  await mkdir(base, { recursive: true, mode: 0o700 });
+  const canonicalBase = await realpath(base);
+  const canonicalRepo = await realpath(repoPath);
+  const canonicalGit = await realpath(gitCommonDirectory);
+  assertExternalWorkspaceRoot(canonicalBase, canonicalRepo, canonicalGit);
+  return canonicalBase;
+}
+
+function assertExternalWorkspaceRoot(candidate, repoPath, gitCommonDirectory) {
+  if (pathContains(repoPath, candidate) || pathContains(gitCommonDirectory, candidate)) {
+    throw new Error("Validation workspace root must be outside the repository and Git common directory.");
+  }
+}
+
+function pathContains(parent, candidate) {
+  const relation = relative(resolve(parent), resolve(candidate));
+  return relation === "" || (!relation.startsWith("..") && !isAbsolute(relation));
 }
 
 async function removeGeneratedTree(path) {
