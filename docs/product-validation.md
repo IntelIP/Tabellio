@@ -7,7 +7,7 @@ Tabellio product validation answers a stronger question than “did tests exit z
 `tabellio-validation/v0.2` binds three layers in one committed manifest:
 
 1. `acceptance` records the source request, risk, required outcomes, invariants, forbidden outcomes, and required validator types.
-2. `validators` run shell-free argument arrays in the exact-head detached worktree.
+2. `validators` run shell-free argument arrays in an exact-head detached worktree under an external temporary root, never under the repository or Git common directory.
 3. `policy` applies metric thresholds and cost requirements to a bounded evidence report.
 
 Validator types are `static`, `schema`, `semantic`, `workflow`, `visual`, `operational`, and `security`. Static validators can use command exit status alone. Every other type must emit `tabellio-validator-evidence/v0.1` at its declared relative path.
@@ -78,6 +78,8 @@ tabellio-validate gate \
   --commit HEAD \
   --manifest tabellio.validation.json
 ```
+
+The runner creates a private `TabellioValidation-*` session under the system temporary directory and removes the detached worktree plus isolated `HOME` after every run. Use `--workspace-root /absolute/external/path` to choose another external parent. Repository-internal and `.git/**` roots are rejected.
 
 `gate` still records the result. It exits non-zero when the decision is `failed` or `blocked`.
 

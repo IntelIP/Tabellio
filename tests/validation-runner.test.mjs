@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
 
 import { GitJsonLedger } from "../scripts/lib/git-json-ledger.mjs";
@@ -13,7 +14,7 @@ import {
   validateValidatorEvidence,
 } from "../scripts/lib/validation-runner.mjs";
 import { NativeGitStore } from "../scripts/providers/native-git-store.mjs";
-import { createFixture, identityEnv } from "./helpers/git-fixture.mjs";
+import { createFeatureFixture, identityEnv } from "./helpers/git-fixture.mjs";
 
 test("validation runner executes exact committed manifests and stores bounded results", async (t) => {
   const previousArtifactBaseUri = process.env.TABELLIO_ARTIFACT_BASE_URI;
@@ -26,13 +27,11 @@ test("validation runner executes exact committed manifests and stores bounded re
     if (previousTestSecret === undefined) delete process.env.TABELLIO_TEST_SECRET;
     else process.env.TABELLIO_TEST_SECRET = previousTestSecret;
   });
-  const fixture = await createFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const fixture = await createFeatureFixture(t);
   const manifestPath = `${fixture.seed}/tabellio.validation.json`;
   await writeFile(manifestPath, JSON.stringify(manifest([
     command("tests", [process.execPath, "-e", 'process.stdout.write("x".repeat(20000))']),
-    command("isolated-home", [process.execPath, "-e", 'if (!process.env.HOME.includes("validation-workspaces")) process.exit(2)']),
+    command("isolated-home", [process.execPath, "-e", 'if (!process.env.HOME.includes("TabellioValidation-") || process.env.HOME.includes(".git")) process.exit(2);process.stdout.write(process.env.HOME)']),
     command("artifact-uri", [process.execPath, "-e", 'if (process.env.TABELLIO_ARTIFACT_BASE_URI !== "artifact+test://validation/run/") process.exit(2)']),
     command("secret-isolated", [process.execPath, "-e", 'if (process.env.TABELLIO_TEST_SECRET !== undefined) process.exit(2)']),
     command("readonly-cache", [process.execPath, "-e", 'const fs=require("node:fs");const p=process.env.HOME+"/go/pkg/mod/example/.github";fs.mkdirSync(p,{recursive:true});fs.chmodSync(p,0o500);fs.chmodSync(process.env.HOME+"/go/pkg/mod/example",0o500)']),
@@ -57,6 +56,9 @@ test("validation runner executes exact committed manifests and stores bounded re
   assert.equal(passed.result.commands[0].stdout.truncated, true);
   assert.equal(Buffer.byteLength(passed.result.commands[0].stdout.tail), 16 * 1024);
   assert.equal(passed.result.commands[1].status, "passed");
+  const isolatedHome = passed.result.commands[1].stdout.tail;
+  assert.match(isolatedHome, /TabellioValidation-[^/]+\/Home$/);
+  assert.equal(await stat(isolatedHome).catch((error) => error.code), "ENOENT");
   assert.equal(passed.result.commands[2].status, "passed");
   assert.equal(passed.result.commands[3].status, "passed");
   assert.equal(passed.result.commands[4].status, "passed");
@@ -96,6 +98,115 @@ test("validation runner executes exact committed manifests and stores bounded re
   assert.equal(status.stdout, "");
 });
 
+test("validation runner accepts external workspace roots and rejects repository-internal roots", async (t) => {
+  const fixture = await createFeatureFixture(t);
+  await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(manifest([
+    command("external-home", [process.execPath, "-e", "process.stdout.write(process.env.HOME)"]),
+  ]), null, 2));
+  await commit(fixture.seed, "Add external workspace validation", "external-workspace");
+  const { store, ledger, externalRoot } = await externalValidationHarness(fixture);
+  const result = await new ValidationRunner({ store, ledger, workspaceRoot: externalRoot }).run({
+    repositoryId: "example/repository",
+    commit: "HEAD",
+    base: "main",
+  });
+  assert.equal(result.result.status, "passed");
+  const isolatedHome = result.result.commands[0].stdout.tail;
+  assert.equal(isolatedHome.startsWith(`${await realpath(externalRoot)}/TabellioValidation-`), true);
+  assert.equal(await stat(isolatedHome).catch((error) => error.code), "ENOENT");
+
+  const repositoryInternal = new ValidationRunner({
+    store,
+    ledger,
+    workspaceRoot: join(fixture.seed, ".git", "tabellio", "validation-workspaces"),
+  });
+  await assert.rejects(
+    repositoryInternal.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" }),
+    /outside the repository and Git common directory/,
+  );
+
+  const repositoryRoot = new ValidationRunner({ store, ledger, workspaceRoot: fixture.seed });
+  await assert.rejects(
+    repositoryRoot.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" }),
+    /outside the repository and Git common directory/,
+  );
+
+  const gitAlias = join(fixture.root, "GitAlias");
+  await symlink(join(fixture.seed, ".git"), gitAlias);
+  const canonicalGitAlias = new ValidationRunner({ store, ledger, workspaceRoot: gitAlias });
+  await assert.rejects(
+    canonicalGitAlias.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" }),
+    /outside the repository and Git common directory/,
+  );
+
+  const missingGitAliasChild = join(gitAlias, "tabellio-validation-created");
+  const canonicalMissingGitAlias = new ValidationRunner({ store, ledger, workspaceRoot: missingGitAliasChild });
+  await assert.rejects(
+    canonicalMissingGitAlias.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" }),
+    /outside the repository and Git common directory/,
+  );
+  assert.equal(
+    await stat(join(fixture.seed, ".git", "tabellio-validation-created")).catch((error) => error.code),
+    "ENOENT",
+  );
+
+  const repositoryAlias = join(fixture.root, "RepositoryAlias");
+  await symlink(fixture.seed, repositoryAlias);
+  const canonicalRepositoryAlias = new ValidationRunner({ store, ledger, workspaceRoot: repositoryAlias });
+  await assert.rejects(
+    canonicalRepositoryAlias.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" }),
+    /outside the repository and Git common directory/,
+  );
+});
+
+test("validation runner blocks result publication when Git worktree cleanup fails", async (t) => {
+  const fixture = await createFeatureFixture(t);
+  await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(manifest([
+    command("break-worktree-registration", [process.execPath, "-e", 'require("node:fs").unlinkSync(".git")']),
+  ]), null, 2));
+  await commit(fixture.seed, "Add cleanup failure validation", "cleanup-failure");
+  const validationHead = await head(fixture.seed);
+  const { store, ledger, externalRoot } = await externalValidationHarness(fixture);
+
+  await assert.rejects(
+    new ValidationRunner({ store, ledger, workspaceRoot: externalRoot }).run({
+      repositoryId: "example/repository",
+      commit: validationHead,
+      base: "main",
+    }),
+    /git worktree remove --force .* failed with exit code 128/,
+  );
+  assert.equal(await latestValidationResult(ledger, validationHead), null);
+  assert.deepEqual(await readdir(externalRoot), []);
+});
+
+test("validation runner removes partial registration when Git worktree add fails", async (t) => {
+  const fixture = await createFeatureFixture(t);
+  await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(manifest([
+    command("never-runs", [process.execPath, "-e", "process.exit(0)"]),
+  ]), null, 2));
+  await commit(fixture.seed, "Add partial worktree validation", "partial-worktree-add");
+  const validationHead = await head(fixture.seed);
+  const hook = join(fixture.seed, ".git", "hooks", "post-checkout");
+  await writeFile(hook, "#!/usr/bin/env node\nprocess.exit(1);\n");
+  await chmod(hook, 0o755);
+  const { store, ledger, externalRoot } = await externalValidationHarness(fixture);
+  const before = await runGit({ args: ["worktree", "list", "--porcelain", "-z"], cwd: fixture.seed });
+
+  await assert.rejects(
+    new ValidationRunner({ store, ledger, workspaceRoot: externalRoot }).run({
+      repositoryId: "example/repository",
+      commit: validationHead,
+      base: "main",
+    }),
+    /git worktree add --detach .* failed with exit code 1/,
+  );
+  const after = await runGit({ args: ["worktree", "list", "--porcelain", "-z"], cwd: fixture.seed });
+  assert.equal(after.stdout, before.stdout);
+  assert.equal(await latestValidationResult(ledger, validationHead), null);
+  assert.deepEqual(await readdir(externalRoot), []);
+});
+
 test("validation manifest rejects shell-like ambiguity and missing checkpoint ranges", async (t) => {
   assert.throws(
     () => validateValidationManifest(manifest([command("escape", ["node", "test.js"], "../outside")])),
@@ -106,9 +217,7 @@ test("validation manifest rejects shell-like ambiguity and missing checkpoint ra
     /1 to 50/,
   );
 
-  const fixture = await createFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const fixture = await createFeatureFixture(t);
   await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(manifest([
     command("tests", [process.execPath, "-e", "process.exit(0)"]),
   ]), null, 2));
@@ -124,9 +233,7 @@ test("validation manifest rejects shell-like ambiguity and missing checkpoint ra
 });
 
 test("validation runner terminates timed-out commands and skips remaining fail-fast work", async (t) => {
-  const fixture = await createFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const fixture = await createFeatureFixture(t);
   await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(manifest([
     command("timeout", [process.execPath, "-e", "setTimeout(() => {}, 5000)"], ".", 150),
     command("must-skip", [process.execPath, "-e", "process.exit(0)"]),
@@ -145,9 +252,7 @@ test("validation runner terminates timed-out commands and skips remaining fail-f
 });
 
 test("typed validators enforce semantic metrics and cost budgets with durable evidence", async (t) => {
-  const fixture = await createFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const fixture = await createFeatureFixture(t);
   const semantic = validatorEvidence("semantic-eval", {
     metrics: [{ name: "strict_pass_rate", value: 0.9, unit: "ratio" }],
     cost: availableCost(0.11, 5, 12),
@@ -208,9 +313,7 @@ test("typed validators enforce semantic metrics and cost budgets with durable ev
 });
 
 test("typed validation distinguishes product failure from blocked evidence", async (t) => {
-  const fixture = await createFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const fixture = await createFeatureFixture(t);
   const weakEvidence = validatorEvidence("semantic-eval", {
     metrics: [{ name: "strict_pass_rate", value: 0.2, unit: "ratio" }],
     cost: availableCost(0.6, 1, 2),
@@ -259,9 +362,7 @@ test("typed validation distinguishes product failure from blocked evidence", asy
 });
 
 test("typed validation preserves failure and blocked boundaries across validator kinds", async (t) => {
-  const fixture = await createFixture();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const fixture = await createFeatureFixture(t);
   const schemaFailure = validatorEvidence("schema-contract", {
     status: "failed",
     summary: "Structured output included an unsupported field.",
@@ -426,6 +527,14 @@ async function commit(cwd, message, checkpoint) {
     cwd,
     env: identityEnv(),
   });
+}
+
+async function externalValidationHarness(fixture) {
+  const store = await NativeGitStore.open(fixture.seed);
+  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
+  const externalRoot = join(fixture.root, "ValidationRoot");
+  await mkdir(externalRoot);
+  return { store, ledger, externalRoot };
 }
 
 async function head(cwd) {
