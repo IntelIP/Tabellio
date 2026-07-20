@@ -107,23 +107,11 @@ async function checkCodexHookTrust({ repoPath, codexConfigPath }) {
 }
 
 function trustedHookEvents(config, hooksPath) {
-  const trusted = new Set();
-  let event = null;
-  for (const line of config.split(/\r?\n/)) {
-    const header = line.match(/^\[hooks\.state\."(.+)"\]\s*$/);
-    if (header) {
-      event = hookEventFromStateKey(header[1], hooksPath);
-      continue;
-    }
-    if (/^\[.+\]\s*$/.test(line)) {
-      event = null;
-      continue;
-    }
-    if (event && /^trusted_hash\s*=\s*"sha256:[a-f0-9]{64}"\s*$/.test(line.trim())) {
-      trusted.add(event);
-    }
-  }
-  return trusted;
+  const sections = config.matchAll(/^\[hooks\.state\."([^"]+)"\]\s*\r?\n((?:(?!^\[)[\s\S])*)/gm);
+  return new Set([...sections]
+    .filter((match) => /^trusted_hash\s*=\s*"sha256:[a-f0-9]{64}"\s*$/m.test(match[2]))
+    .map((match) => hookEventFromStateKey(match[1], hooksPath))
+    .filter((event) => event !== null));
 }
 
 function hookEventFromStateKey(key, hooksPath) {
