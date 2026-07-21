@@ -42,7 +42,7 @@ export async function effectiveGitHubRepository(store, remote) {
   return { ...repository, fetchUrls, pushUrls };
 }
 
-export async function readRemoteRefOid({ repoPath, remote, ref }) {
+export async function readRemoteRefOid({ repoPath, remote, ref, allowMissing = false }) {
   assertSafeRemoteName(remote);
   assertSafeGitRef(ref);
   const result = await runGit({
@@ -50,7 +50,7 @@ export async function readRemoteRefOid({ repoPath, remote, ref }) {
     cwd: repoPath,
     timeoutMs: 15 * 60 * 1000,
   });
-  return parseRemoteRefOutput(result.stdout, remote, ref);
+  return parseRemoteRefOutput(result.stdout, remote, ref, allowMissing);
 }
 
 async function effectiveRemoteUrls(repoPath, remote, push) {
@@ -115,13 +115,23 @@ function assertSafeGitRef(ref) {
   if (ref.includes("..")) throw new Error("ref must be a safe fully qualified Git ref.");
 }
 
-function parseRemoteRefOutput(source, remote, ref) {
+function parseRemoteRefOutput(source, remote, ref, allowMissing) {
   const rows = remoteOutputRows(source);
+  if (rows.length === 0) return missingRemoteRefValue(allowMissing, remote, ref);
   if (rows.length !== 1) throw new Error(`Remote ${remote} returned ${rows.length} values for ${ref}.`);
-  const [oid, actualRef] = rows[0].split(/\s+/);
+  return parseExpectedRemoteRefRow(rows[0], remote, ref);
+}
+
+function parseExpectedRemoteRefRow(row, remote, ref) {
+  const [oid, actualRef] = row.split(/\s+/);
   if (actualRef !== ref) throw new Error(`Remote ${remote} returned an invalid value for ${ref}.`);
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid)) throw new Error(`Remote ${remote} returned an invalid value for ${ref}.`);
   return oid;
+}
+
+function missingRemoteRefValue(allowMissing, remote, ref) {
+  if (allowMissing) return null;
+  throw new Error(`Remote ${remote} returned 0 values for ${ref}.`);
 }
 
 function remoteOutputRows(source) {

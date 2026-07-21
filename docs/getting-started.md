@@ -18,6 +18,8 @@ Enable Entire for Codex before creating agent commits:
 entire enable --agent codex --project
 ```
 
+Tabellio's current release transport publishes `refs/heads/entire/checkpoints/v1`, so agent and release preflight require an explicit `git-branch` checkpoint backend in `.entire/settings.json` (or `ENTIRE_CHECKPOINTS_PRIMARY`). An unspecified backend fails closed. Do not select `git-refs` until Tabellio adds matching release-publication support. A new `git-branch` setup may run agent preflight before its first checkpoint creates the metadata branch; release preflight still requires checkpoint metadata.
+
 Every agent change range must contain at least one `Entire-Checkpoint` commit trailer. Context capture fails closed when no checkpoint exists. Use `--ledger git-note` only while migrating an older repository.
 
 ## Capture A Stack
@@ -78,7 +80,7 @@ node scripts/tabellio-preflight.mjs --profile agent
 node scripts/tabellio-preflight.mjs --profile release
 ```
 
-`entire doctor` must report healthy metadata and trusted Codex hooks. When trust is missing, open `/hooks` in Codex and approve the four repository hooks.
+Preflight performs read-only checks of Entire enablement and Codex hook-trust state. When trust is missing, open `/hooks` in Codex and approve the four repository hooks. Run `entire doctor` separately only when an operator explicitly intends to diagnose and repair Entire state.
 
 After explicit PR merge, create the exact release plan:
 
@@ -87,8 +89,8 @@ node scripts/tabellio-release.mjs plan \
   --owner example \
   --remote-repo repository \
   --number 42 \
-  --version 0.3.0 \
-  --notes docs/releases/v0.3.0.md \
+  --version 0.5.0 \
+  --notes docs/releases/v0.5.0.md \
   --out /tmp/tabellio-release-intent.json
 ```
 

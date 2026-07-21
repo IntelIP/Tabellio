@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { createInterface } from "node:readline";
 
 import { runExternalCommand } from "./external-command.mjs";
 import { runGit } from "./git-process.mjs";
@@ -16,17 +19,26 @@ import { NativeGitStore } from "../providers/native-git-store.mjs";
 const PREFLIGHT_VERSION = "tabellio-preflight/v0.1";
 const PROFILES = new Set(["agent", "release"]);
 const MINIMUM_ENTIRE_VERSION = [0, 7, 7];
+const REQUIRED_CODEX_HOOKS = [
+  { configEvent: "SessionStart", event: "session_start", command: "session-start" },
+  { configEvent: "UserPromptSubmit", event: "user_prompt_submit", command: "user-prompt-submit" },
+  { configEvent: "Stop", event: "stop", command: "stop" },
+  { configEvent: "PostToolUse", event: "post_tool_use", command: "post-tool-use" },
+];
 
 export async function runPreflight({
   repoPath = process.cwd(),
   profile = "agent",
   entireBinary = "entire",
   ghBinary = "gh",
+  codexBinary = "codex",
   commandRunner = runExternalCommand,
   controlRemote = null,
   remoteRefReader = readRemoteRefOid,
   remoteRepositoryReader = effectiveGitHubRepository,
   nodeVersion = process.versions.node,
+  codexStateReader = readEffectiveCodexState,
+  entireCheckpointsPrimary = process.env.ENTIRE_CHECKPOINTS_PRIMARY ?? null,
   now = new Date(),
 } = {}) {
   if (!PROFILES.has(profile)) throw new Error("profile must be agent or release.");
@@ -34,6 +46,10 @@ export async function runPreflight({
   const resolvedRepo = resolve(repoPath);
   let store = null;
   let repositoryId = null;
+  let codexConfigReady = false;
+  let codexHookMode = null;
+  let codexManagedEvents = [];
+  let codexEffectiveHooks = [];
 
   await record(checks, "node-version", async () => {
     if (majorVersion(nodeVersion) < 20) return blocked(`Node ${nodeVersion} is below required major 20.`, "Install Node.js 20 or later.");
@@ -45,8 +61,6 @@ export async function runPreflight({
     repositoryId = await repositoryIdentity(store);
     return passed(`Repository ${repositoryId}.`);
   });
-
-  await recordRepositoryChecks({ checks, store, profile, commandRunner, ghBinary, controlRemote, remoteRefReader, remoteRepositoryReader });
 
   await record(checks, "entire-version", async () => {
     const result = await commandRunner({ binary: entireBinary, args: ["--version"], cwd: resolvedRepo, timeoutMs: 30_000 });
@@ -68,17 +82,48 @@ export async function runPreflight({
     return passed("Entire enabled for Codex.");
   });
 
-  await record(checks, "entire-doctor", async () => {
-    const result = await commandRunner({ binary: entireBinary, args: ["doctor"], cwd: resolvedRepo, timeoutMs: 30_000 });
-    const output = `${result.stdout}\n${result.stderr}`;
-    if (!/Metadata branches:\s*OK/i.test(output)) {
-      return blocked("Entire metadata branches are unhealthy or unverifiable.", "Run entire doctor and resolve metadata branch errors.");
-    }
-    if (!/^Codex hook trust:\s*OK\s*$/im.test(output)) {
-      return blocked("Codex Entire hook trust is unhealthy or unverifiable.", "Open /hooks in Codex, approve all four repository hooks, then rerun preflight.");
-    }
-    return passed("Entire metadata and Codex hook trust healthy.");
+  await record(checks, "entire-metadata", () => store
+    ? checkEntireMetadata(store, { remoteRefReader, profile, entireCheckpointsPrimary })
+    : blocked("Entire metadata storage could not be inspected.", "Open a Git repository, then rerun preflight."));
+
+  const codexCwd = store ? store.repoPath : resolvedRepo;
+  await record(checks, "codex-config", async () => {
+    const codexState = await codexStateReader({
+      binary: codexBinary,
+      cwd: codexCwd,
+      timeoutMs: 30_000,
+    });
+    const hookPolicy = await codexHookPolicy(codexState.requirements, codexState.hooks);
+    codexEffectiveHooks = codexState.hooks;
+    codexHookMode = hookPolicy.mode;
+    codexManagedEvents = hookPolicy.managedEvents;
+    const result = await checkCodexConfig({
+      commandRunner,
+      codexBinary,
+      cwd: store?.repoPath ?? resolvedRepo,
+      hookPolicy,
+    });
+    codexConfigReady = result.status === "passed";
+    return result;
   });
+
+  await recordRepositoryChecks({
+    checks,
+    store,
+    profile,
+    commandRunner,
+    ghBinary,
+    controlRemote,
+    remoteRefReader,
+    remoteRepositoryReader,
+    codexHookMode,
+    codexManagedEvents,
+    codexEffectiveHooks,
+  });
+
+  await record(checks, "codex-hook-trust", () => codexConfigReady
+    ? checkCodexHookTrust({ effectiveHooks: codexEffectiveHooks, managedEvents: codexManagedEvents })
+    : blocked("Codex configuration validity is unproven.", "Correct the Codex configuration, then rerun preflight."));
 
   await record(checks, "github-auth", async () => {
     await commandRunner({ binary: ghBinary, args: ["auth", "status", "--hostname", "github.com"], cwd: resolvedRepo, timeoutMs: 30_000 });
@@ -96,6 +141,455 @@ export async function runPreflight({
   });
 }
 
+function checkCodexHookTrust({ effectiveHooks, managedEvents }) {
+  if (managedEvents.length === REQUIRED_CODEX_HOOKS.length) return passed("Four required Entire hooks are enforced by managed Codex policy.");
+  const required = REQUIRED_CODEX_HOOKS.filter((hook) => !managedEvents.includes(hook.configEvent));
+  const untrusted = required.filter((hook) => !effectiveHooks.some((candidate) => projectHookInventoryMatches(candidate, hook, true)))
+    .map((hook) => hook.event);
+  return untrusted.length === 0
+    ? passed("Required project Entire hooks are trusted in Codex's effective inventory; managed coverage is enforced by policy.")
+    : blocked(`Codex Entire hook trust missing or stale: ${untrusted.join(", ")}.`, "Open /hooks in Codex, approve all required repository hooks, then rerun preflight.");
+}
+
+async function checkCodexConfig({ commandRunner, codexBinary, cwd, hookPolicy }) {
+  const result = await commandRunner({
+    binary: codexBinary,
+    args: ["features", "list"],
+    cwd,
+    timeoutMs: 30_000,
+  });
+  if (!/^hooks\s+\S+\s+true\s*$/m.test(result.stdout)) {
+    return blocked("Codex hooks are disabled in the effective configuration.", "Enable Codex hooks, then rerun preflight.");
+  }
+  if (hookPolicy.blocker) return hookPolicy.blocker;
+  if (hookPolicy.mode === "managed") {
+    return passed("Codex configuration is valid and required Entire hooks are managed.");
+  }
+  return passed("Codex configuration is valid and hooks are effectively enabled.");
+}
+
+async function codexHookPolicy(requirements, effectiveHooks) {
+  const managedEvents = managedEntireHookEvents(effectiveHooks);
+  const missing = REQUIRED_CODEX_HOOKS.filter((required) => !managedEvents.includes(required.configEvent)).map((required) => required.event);
+  if (missing.length === 0) return { mode: "managed", blocker: null, managedEvents };
+  if (managedHooksOnly(requirements)) {
+    return {
+      mode: "managed",
+      blocker: blocked(`Managed Codex Entire hooks missing: ${missing.join(", ")}.`, "Install all four required Entire hooks in managed Codex policy, then rerun preflight."),
+      managedEvents,
+    };
+  }
+  return { mode: projectHookMode(managedEvents), blocker: null, managedEvents };
+}
+
+function projectHookMode(managedEvents) {
+  return managedEvents.length > 0 ? "mixed" : "project";
+}
+
+function managedHooksOnly(requirements) {
+  return requirements != null && requirements.allowManagedHooksOnly === true;
+}
+
+function managedEntireHookEvents(hooks) {
+  const inventory = Array.isArray(hooks) ? hooks : [];
+  return REQUIRED_CODEX_HOOKS.filter((required) => inventory.some((hook) => managedHookMatches(hook, required)))
+    .map((required) => required.configEvent);
+}
+
+function managedHookMatches(hook, required) {
+  const candidate = Object.assign({}, hook);
+  const identity = JSON.stringify({
+    isManaged: candidate.isManaged,
+    enabled: candidate.enabled,
+    trustStatus: candidate.trustStatus,
+  });
+  const requiredIdentity = JSON.stringify({
+    isManaged: true,
+    enabled: true,
+    trustStatus: "managed",
+  });
+  return [
+    identity === requiredIdentity,
+    managedEventNameMatches(candidate.eventName, required),
+    hookGroupAppliesToAll(candidate, required.configEvent),
+    matchesRequiredEntireHook({ type: candidate.handlerType, command: candidate.command, async: candidate.async }, required.command),
+  ].every(Boolean);
+}
+
+function projectHookInventoryMatches(hook, required, requireTrust) {
+  const candidate = Object.assign({}, hook);
+  const identityMatches = candidate.isManaged === false
+    && candidate.source === "project"
+    && candidate.enabled === true;
+  const trustMatches = requireTrust === false || candidate.trustStatus === "trusted";
+  return [
+    identityMatches,
+    trustMatches,
+    managedEventNameMatches(candidate.eventName, required),
+    hookGroupAppliesToAll(candidate, required.configEvent),
+    matchesRequiredEntireHook({ type: candidate.handlerType, command: candidate.command, async: candidate.async }, required.command),
+  ].every(Boolean);
+}
+
+function managedEventNameMatches(eventName, required) {
+  return [lowerCamel(required.configEvent), required.event].includes(eventName);
+}
+
+function lowerCamel(value) {
+  return value[0].toLowerCase() + value.slice(1);
+}
+
+async function readEffectiveCodexState({ binary, cwd, timeoutMs }) {
+  return new Promise((resolveState, rejectState) => {
+    const child = spawn(binary, ["app-server", "--stdio"], {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, LC_ALL: "C", NO_COLOR: "1" },
+    });
+    let stderr = "";
+    let settled = false;
+    const timer = setTimeout(() => finish(new Error("Codex effective requirements query timed out.")), timeoutMs);
+
+    const finish = (error, result = null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill();
+      if (error) rejectState(error);
+      else resolveState(result);
+    };
+    const state = { requirements: undefined, hooks: undefined };
+    const send = (message) => {
+      if (settled || !child.stdin.writable) return;
+      child.stdin.write(`${JSON.stringify(message)}\n`, (error) => {
+        if (error) finish(error);
+      });
+    };
+    const lines = createInterface({ input: child.stdout });
+    lines.on("line", (line) => handleCodexAppServerLine(line, { send, finish, state, cwd }));
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.stdin.on("error", finish);
+    child.on("error", finish);
+    child.on("exit", (code, signal) => {
+      if (!settled) finish(new Error(`Codex effective requirements query exited before response (${code ?? signal ?? "unknown"}): ${stderr.trim()}`));
+    });
+    send({
+      id: 1,
+      method: "initialize",
+      params: {
+        clientInfo: { name: "tabellio-preflight", version: PREFLIGHT_VERSION },
+        capabilities: { experimentalApi: true },
+      },
+    });
+  });
+}
+
+function handleCodexAppServerLine(line, context) {
+  const message = parseCodexAppServerLine(line, context.finish);
+  if (message === null) return;
+  const handlers = {
+    1: handleCodexInitializeResponse,
+    2: handleCodexRequirementsResponse,
+    3: handleCodexHooksResponse,
+  };
+  handlers[message.id]?.(message, context);
+}
+
+function parseCodexAppServerLine(line, finish) {
+  try {
+    return JSON.parse(line);
+  } catch {
+    finish(new Error("Codex app-server returned invalid JSON."));
+    return null;
+  }
+}
+
+function handleCodexInitializeResponse(message, { send, finish, cwd }) {
+  if (message.error) {
+    finish(codexRequirementsError(message.error));
+    return;
+  }
+  if (message.result) {
+    send({ method: "initialized", params: {} });
+    send({ id: 2, method: "configRequirements/read", params: null });
+    send({ id: 3, method: "hooks/list", params: { cwds: [cwd] } });
+  }
+}
+
+function handleCodexRequirementsResponse(message, context) {
+  if (message.error) {
+    context.finish(codexRequirementsError(message.error));
+    return;
+  }
+  if (message.result && Object.hasOwn(message.result, "requirements")) {
+    context.state.requirements = message.result.requirements;
+    finishCodexStateWhenReady(context);
+  }
+}
+
+function handleCodexHooksResponse(message, context) {
+  if (message.error) {
+    context.finish(codexRequirementsError(message.error));
+    return;
+  }
+  try {
+    const entries = message.result.data;
+    const entry = entries.find((candidate) => candidate.cwd === context.cwd) ?? entries[0];
+    requireHookInventory(entry);
+    requireErrorFreeHookInventory(entry.errors);
+    context.state.hooks = entry.hooks;
+    finishCodexStateWhenReady(context);
+  } catch (error) {
+    context.finish(error);
+  }
+}
+
+function requireHookInventory(entry) {
+  if (!Array.isArray(entry?.hooks)) throw new Error("Codex hooks/list returned no hook inventory for the repository.");
+}
+
+function requireErrorFreeHookInventory(errors = []) {
+  if (errors.length > 0) throw new Error(`Codex hooks/list reported errors: ${errors.map((error) => error.message).join(", ")}`);
+}
+
+function finishCodexStateWhenReady({ state, finish }) {
+  if (state.requirements !== undefined && state.hooks !== undefined) finish(null, state);
+}
+
+function codexRequirementsError(error) {
+  return new Error(`Codex effective requirements query failed: ${error.message ?? "unknown error"}`);
+}
+
+async function checkEntireMetadata(store, options) {
+  const backend = await configuredEntireBackend(store.repoPath, options.entireCheckpointsPrimary);
+  if (backend === null) {
+    return blocked(
+      "Entire checkpoint backend is not explicitly configured.",
+      "Set checkpoints.primary.type to git-branch or set ENTIRE_CHECKPOINTS_PRIMARY, then rerun preflight.",
+    );
+  }
+  if (backend === "git-refs") {
+    return blocked(
+      "Tabellio release publication does not support the Entire git-refs checkpoint backend.",
+      "Configure Entire to use git-branch before agent work, then rerun preflight.",
+    );
+  }
+  if (backend !== "git-branch") throw new Error(`Unsupported Entire checkpoint backend: ${backend}.`);
+  return checkEntireMetadataBranch(store, options.remoteRefReader, options.profile);
+}
+
+async function configuredEntireBackend(repoPath, override) {
+  if (validBackendOverride(override)) return override.trim();
+  const [local, project] = await Promise.all([
+    readJsonIfExists(resolve(repoPath, ".entire", "settings.local.json")),
+    readJsonIfExists(resolve(repoPath, ".entire", "settings.json")),
+  ]);
+  return firstCheckpointBackend(local, project);
+}
+
+function validBackendOverride(value) {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function firstCheckpointBackend(...settings) {
+  return settings.map(checkpointBackend).find(Boolean) ?? null;
+}
+
+function checkpointBackend(settings) {
+  const checkpoints = settings == null ? null : settings.checkpoints;
+  const primary = checkpoints == null ? null : checkpoints.primary;
+  return primary == null ? null : primary.type;
+}
+
+async function readJsonIfExists(path) {
+  const source = await readFile(path, "utf8").catch((error) => {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  });
+  return source === null ? null : JSON.parse(source);
+}
+
+async function checkEntireMetadataBranch(store, remoteRefReader, profile) {
+  const platform = await readPlatformConfig(store);
+  const localRef = platform.ledger.checkpointRef;
+  if (!(await store.hasRef(localRef))) {
+    return checkMissingMetadataBranch(store, platform, localRef, remoteRefReader, profile);
+  }
+  const remote = platform.workflow.controlRemoteName;
+  const liveRemote = await remoteRefReader({ repoPath: store.repoPath, remote, ref: localRef, allowMissing: true });
+  if (liveRemote === null) {
+    return checkUnpublishedEntireMetadata(store, localRef, profile);
+  }
+  return checkPublishedEntireMetadata(store, localRef, liveRemote, profile);
+}
+
+async function checkPublishedEntireMetadata(store, localRef, liveRemote, profile) {
+  const localObject = await store.resolveRef(liveRemote).catch(() => null);
+  if (!localObject) {
+    return blocked("The live remote Entire metadata commit is not available locally.", "Fetch the checkpoint metadata branch, then rerun preflight.");
+  }
+  if (!(await store.isAncestor(liveRemote, localRef))) {
+    return blocked("The live remote Entire metadata branch is ahead, divergent, or disconnected from local metadata.", "Fetch and reconcile the checkpoint metadata branch explicitly, then rerun preflight.");
+  }
+  return checkEntireMetadataContents(store, localRef, { allowEmpty: profile === "agent" });
+}
+
+async function checkUnpublishedEntireMetadata(store, localRef, profile) {
+  const result = await checkEntireMetadataContents(store, localRef, { allowEmpty: profile === "agent" });
+  return result.status === "blocked"
+    ? result
+    : passed("Local Entire checkpoint metadata is valid; the control remote ref may be created by approved publication.");
+}
+
+async function checkMissingMetadataBranch(store, platform, localRef, remoteRefReader, profile) {
+  const blocker = blocked(`Entire metadata branch missing: ${localRef}.`, "Restore the local checkpoint metadata branch, then rerun preflight.");
+  if (profile !== "agent") return blocker;
+  const liveRemote = await remoteRefReader({
+    repoPath: store.repoPath,
+    remote: platform.workflow.controlRemoteName,
+    ref: localRef,
+    allowMissing: true,
+  });
+  return liveRemote === null
+    ? passed("Entire metadata branch is not initialized yet; first agent checkpoint may create it.")
+    : blocker;
+}
+
+function validCheckpointId(value) {
+  return /^[0-9a-f]{12}$/.test(value) || /^[0-9A-HJKMNP-TV-Z]{26}$/.test(value);
+}
+
+async function checkEntireMetadataContents(store, localRef, { allowEmpty }) {
+  const files = await store.listFiles(localRef);
+  const emptyResult = emptyMetadataResult(files, allowEmpty);
+  if (emptyResult) return emptyResult;
+  const metadataPaths = files.filter((path) => /^(?:[0-9a-f]{2}\/[0-9a-f]{10}|[0-9A-HJKMNP-TV-Z]{2}\/[0-9A-HJKMNP-TV-Z]{24})\/metadata\.json$/.test(path));
+  if (metadataPaths.length === 0) {
+    return blocked("Entire metadata branch contains no checkpoint metadata.", "Restore usable Entire checkpoint metadata, then rerun preflight.");
+  }
+  const invalidPath = await firstInvalidMetadataPath(store, localRef, metadataPaths, files);
+  return invalidPath
+    ? blocked(`Entire checkpoint metadata is invalid: ${invalidPath}.`, "Repair the checkpoint metadata branch explicitly, then rerun preflight.")
+    : passed("Live remote Entire metadata is contained locally and checkpoint contents are valid.");
+}
+
+function emptyMetadataResult(files, allowEmpty) {
+  if (files.length !== 0) return null;
+  return allowEmpty
+    ? passed("Live remote Entire metadata is contained locally; initialized agent metadata is empty.")
+    : blocked("Entire metadata branch contains no checkpoint metadata.", "Create a checkpoint before release preflight, then rerun.");
+}
+
+async function firstInvalidMetadataPath(store, localRef, metadataPaths, files) {
+  for (const path of metadataPaths) {
+    const result = await runGit({ args: ["show", `${localRef}:${path}`], cwd: store.repoPath, gitDir: store.gitDir });
+    const metadata = JSON.parse(result.stdout);
+    if (!validCheckpointMetadata(metadata, path, new Set(files))) return path;
+    if (!(await validCheckpointSessionFiles(store, localRef, metadata))) return path;
+  }
+  return null;
+}
+
+async function validCheckpointSessionFiles(store, localRef, metadata) {
+  const results = await Promise.all(metadata.sessions.map(async (session) => {
+    const [sessionMetadata, transcript, contentHash] = await Promise.all([
+      gitFileText(store, localRef, session.metadata),
+      gitTranscriptEvidence(store, localRef, session.transcript),
+      gitFileText(store, localRef, session.content_hash),
+    ]);
+    return validSessionFiles({ sessionMetadata, transcript, contentHash }, metadata.checkpoint_id);
+  }));
+  return results.every(Boolean);
+}
+
+function validSessionFiles({ sessionMetadata, transcript, contentHash }, checkpointId) {
+  return [
+    validSessionMetadata(sessionMetadata, checkpointId),
+    transcript?.valid === true,
+    validContentHash(contentHash, transcript),
+  ].every(Boolean);
+}
+
+function validContentHash(contentHash, transcript) {
+  return typeof contentHash === "string" && contentHash.trim() === transcript?.digest;
+}
+
+async function gitTranscriptEvidence(store, ref, path) {
+  const args = [...(store.gitDir ? [`--git-dir=${store.gitDir}`] : []), "show", `${ref}:${path.slice(1)}`];
+  return new Promise((resolveEvidence) => {
+    const child = spawn("git", args, {
+      cwd: store.repoPath,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const hash = createHash("sha256");
+    let lineCount = 0;
+    let linesValid = true;
+    child.stdout.on("data", (chunk) => hash.update(chunk));
+    const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+    lines.on("line", (line) => {
+      if (line.trim() === "") return;
+      lineCount += 1;
+      try { JSON.parse(line); } catch { linesValid = false; }
+    });
+    child.once("error", () => resolveEvidence(null));
+    child.once("close", (exitCode) => resolveEvidence(exitCode === 0 ? {
+      valid: linesValid && lineCount > 0,
+      digest: `sha256:${hash.digest("hex")}`,
+    } : null));
+  });
+}
+
+async function gitFileText(store, ref, path) {
+  const result = await runGit({ args: ["show", `${ref}:${path.slice(1)}`], cwd: store.repoPath, gitDir: store.gitDir }).catch(() => null);
+  return result?.stdout ?? null;
+}
+
+function validSessionMetadata(source, checkpointId) {
+  const metadata = parseJson(source);
+  return [
+    metadata?.checkpoint_id === checkpointId,
+    typeof metadata?.session_id === "string",
+    metadata?.session_id !== "",
+  ].every(Boolean);
+}
+
+function parseJson(source) {
+  try { return JSON.parse(source); } catch { return null; }
+}
+
+function validCheckpointMetadata(metadata, path, files, explicitCheckpointId = null) {
+  const prefix = path.slice(0, -"metadata.json".length);
+  const checkpointId = explicitCheckpointId ?? prefix.replaceAll("/", "");
+  if (!validCheckpointEnvelope(metadata, checkpointId)) return false;
+  return metadata.sessions.every((session) => validCheckpointSession(session, prefix, files));
+}
+
+function validCheckpointEnvelope(metadata, checkpointId) {
+  if (!metadata || typeof metadata !== "object") return false;
+  const sessions = Array.isArray(metadata.sessions) ? metadata.sessions : [];
+  const checks = [
+    metadata.partial !== true,
+    metadata.checkpoint_id === checkpointId,
+    sessions === metadata.sessions,
+    sessions.length > 0,
+    checkpointSessionCountMatches(metadata, sessions),
+  ];
+  return checks.filter(Boolean).length === checks.length;
+}
+
+function checkpointSessionCountMatches(metadata, sessions) {
+  if (metadata.session_count == null) return true;
+  return Number.isInteger(metadata.session_count) && metadata.session_count === sessions.length;
+}
+
+function validCheckpointSession(session, prefix, files) {
+  return [session?.metadata, session?.transcript, session?.content_hash].every((path) => typeof path === "string"
+    && path.startsWith(`/${prefix}`)
+    && files.has(path.slice(1)));
+}
+
 export function validatePreflightResult(value) {
   contract.object(value, "preflight");
   contract.exactKeys(value, ["schemaVersion", "profile", "repository", "status", "checks", "checkedAt"], "preflight");
@@ -111,11 +605,13 @@ export function validatePreflightResult(value) {
   return value;
 }
 
-async function recordRepositoryChecks({ checks, store, profile, commandRunner, ghBinary, controlRemote, remoteRefReader, remoteRepositoryReader }) {
+async function recordRepositoryChecks({ checks, store, profile, commandRunner, ghBinary, controlRemote, remoteRefReader, remoteRepositoryReader, codexHookMode, codexManagedEvents, codexEffectiveHooks }) {
   if (!store) return;
   await record(checks, "platform-contract", () => checkPlatformContract(store));
   await record(checks, "github-remotes", () => checkGitHubRemotes({ store, commandRunner, ghBinary, controlRemote, remoteRepositoryReader }));
-  await record(checks, "codex-hooks", () => checkCodexHooks(store));
+  await record(checks, "codex-hooks", () => codexHookMode === "managed"
+    ? passed("Project hook declarations are skipped because managed-only Codex policy enforces Entire hooks.")
+    : checkCodexHooks(codexEffectiveHooks, codexManagedEvents));
   if (profile === "release") await record(checks, "clean-main", () => checkCleanMain(store, remoteRefReader));
 }
 
@@ -162,18 +658,12 @@ function privateControlResult(repository, control, selectedControl) {
   return passed(`origin and ${selectedControl} are distinct; control repository is private.`);
 }
 
-async function checkCodexHooks(store) {
-  const hooks = JSON.parse(await readFile(resolve(store.repoPath, ".codex/hooks.json"), "utf8"));
-  const declared = new Map(Object.entries(hooks.hooks || {}).map(([name, entries]) => [name.toLowerCase(), entries]));
-  const required = new Map([
-    ["sessionstart", "session-start"],
-    ["userpromptsubmit", "user-prompt-submit"],
-    ["stop", "stop"],
-    ["posttooluse", "post-tool-use"],
-  ]);
-  const missing = [...required].filter(([event, command]) => !hasEntireHook(declared.get(event), command)).map(([event]) => event);
+function checkCodexHooks(effectiveHooks, managedEvents) {
+  const required = REQUIRED_CODEX_HOOKS.filter((hook) => !managedEvents.includes(hook.configEvent));
+  const missing = required.filter((hook) => !effectiveHooks.some((candidate) => projectHookInventoryMatches(candidate, hook, false)))
+    .map((hook) => hook.configEvent.toLowerCase());
   if (missing.length > 0) return blocked(`Codex Entire hooks missing: ${missing.join(", ")}.`, "Reinstall Entire Codex hooks for this repository.");
-  return passed("Four required Entire Codex hook commands declared.");
+  return passed("Required project Entire hook commands declared; managed coverage is enforced by policy.");
 }
 
 async function checkCleanMain(store, remoteRefReader) {
@@ -201,21 +691,64 @@ async function readPlatformConfig(store) {
   return validatePlatformConfig(JSON.parse(source));
 }
 
-function hasEntireHook(entries, expectedCommand) {
+function hasEntireHook(entries, expectedCommand, event) {
   if (!Array.isArray(entries)) return false;
-  const direct = new RegExp(`^(?:exec )?entire hooks codex ${expectedCommand}$`);
-  const guarded = new RegExp(`^sh -c 'if ! command -v entire >/dev/null 2>&1; then .+; fi; exec entire hooks codex ${expectedCommand}'$`);
-  return entries.some((entry) => hookCommands(entry).some((hook) => matchesEntireHook(hook, direct, guarded)));
+  return entries.filter((group) => hookGroupAppliesToAll(group, event))
+    .some((entry) => hookCommands(entry).some((hook) => matchesRequiredEntireHook(hook, expectedCommand)));
+}
+
+function hookGroupAppliesToAll(group, event) {
+  return [
+    matcherIgnoredForEvent(event),
+    documentedAllMatcher(group?.matcher),
+    sessionStartMatcherAppliesToAll(group?.matcher, event),
+  ].some(Boolean);
+}
+
+function matcherIgnoredForEvent(event) {
+  return ["userpromptsubmit", "stop"].includes(event.toLowerCase());
+}
+
+function documentedAllMatcher(matcher) {
+  return matcher == null || ["", "*"].includes(matcher);
+}
+
+function sessionStartMatcherAppliesToAll(matcher, event) {
+  if (event.toLowerCase() !== "sessionstart" || typeof matcher !== "string") return false;
+  try {
+    const pattern = new RegExp(matcher);
+    return ["startup", "resume", "clear", "compact"].every((source) => pattern.test(source));
+  } catch {
+    return false;
+  }
 }
 
 function hookCommands(entry) {
   return Array.isArray(entry?.hooks) ? entry.hooks : [];
 }
 
-function matchesEntireHook(hook, direct, guarded) {
-  if (hook?.type !== "command") return false;
-  if (typeof hook.command !== "string") return false;
-  return [direct, guarded].some((pattern) => pattern.test(hook.command));
+function matchesRequiredEntireHook(hook, expectedCommand) {
+  if (!validEntireHookShape(hook)) return false;
+  const direct = new RegExp(`^(?:exec )?entire hooks codex ${expectedCommand}$`);
+  const guarded = new RegExp(`^sh -c 'if ! command -v entire >/dev/null 2>&1; then .+; fi; exec entire hooks codex ${expectedCommand}'$`);
+  if (!requiredHookCommandMatches(hook.command, [direct, guarded])) return false;
+  return hook.commandWindows == null || windowsHookCommandMatches(hook.commandWindows, expectedCommand);
+}
+
+function validEntireHookShape(hook) {
+  return hook?.type === "command" && hook.async !== true && typeof hook.command === "string";
+}
+
+function requiredHookCommandMatches(command, patterns) {
+  return typeof command === "string" && patterns.some((pattern) => pattern.test(command));
+}
+
+function windowsHookCommandMatches(command, expectedCommand) {
+  if (typeof command !== "string") return false;
+  const direct = new RegExp(`^(?:exec )?entire(?:\\.exe)? hooks codex ${expectedCommand}$`, "i");
+  if (direct.test(command)) return true;
+  const guardedCmd = new RegExp(`^cmd(?:\\.exe)? /d /s /c \"where entire(?:\\.exe)? >nul 2>nul && entire(?:\\.exe)? hooks codex ${expectedCommand}\"$`, "i");
+  return guardedCmd.test(command);
 }
 
 function firstBlocker(rules, fallback) {
