@@ -49,6 +49,7 @@ export async function runPreflight({
   let store = null;
   let repositoryId = null;
   let codexConfigReady = false;
+  let codexHookMode = null;
 
   await record(checks, "node-version", async () => {
     if (majorVersion(nodeVersion) < 20) return blocked(`Node ${nodeVersion} is below required major 20.`, "Install Node.js 20 or later.");
@@ -88,18 +89,20 @@ export async function runPreflight({
     : blocked("Entire metadata storage could not be inspected.", "Open a Git repository, then rerun preflight."));
 
   await record(checks, "codex-config", async () => {
+    const hookPolicy = await codexHookPolicy(codexRequirementsPath);
     const result = await checkCodexConfig({
       commandRunner,
       codexBinary,
       cwd: store?.repoPath ?? resolvedRepo,
-      codexRequirementsPath,
+      hookPolicy,
     });
     codexConfigReady = result.status === "passed";
+    codexHookMode = codexConfigReady ? hookPolicy.mode : null;
     return result;
   });
 
   await record(checks, "codex-hook-trust", () => codexConfigReady
-    ? checkCodexHookTrust({ repoPath: store.repoPath, codexConfigPath })
+    ? checkCodexHookTrust({ repoPath: store.repoPath, codexConfigPath, mode: codexHookMode })
     : blocked("Codex configuration validity is unproven.", "Correct the Codex configuration, then rerun preflight."));
 
   await record(checks, "github-auth", async () => {
@@ -118,7 +121,8 @@ export async function runPreflight({
   });
 }
 
-async function checkCodexHookTrust({ repoPath, codexConfigPath }) {
+async function checkCodexHookTrust({ repoPath, codexConfigPath, mode }) {
+  if (mode === "managed") return passed("Four required Entire hooks are enforced by managed Codex policy.");
   const canonicalRepo = await realpath(repoPath);
   const hooksPath = await realpath(resolve(repoPath, ".codex", "hooks.json"));
   const [config, hooksSource] = await Promise.all([
@@ -132,7 +136,7 @@ async function checkCodexHookTrust({ repoPath, codexConfigPath }) {
   return codexHookTrustResult(expected, states);
 }
 
-async function checkCodexConfig({ commandRunner, codexBinary, cwd, codexRequirementsPath }) {
+async function checkCodexConfig({ commandRunner, codexBinary, cwd, hookPolicy }) {
   const result = await commandRunner({
     binary: codexBinary,
     args: ["features", "list"],
@@ -142,19 +146,44 @@ async function checkCodexConfig({ commandRunner, codexBinary, cwd, codexRequirem
   if (!/^hooks\s+\S+\s+true\s*$/m.test(result.stdout)) {
     return blocked("Codex hooks are disabled in the effective configuration.", "Enable Codex hooks, then rerun preflight.");
   }
-  if (await codexManagedHooksOnly(codexRequirementsPath)) {
-    return blocked("Codex managed-only hook policy excludes repository hooks.", "Allow project hooks or install the required Entire hooks in managed Codex policy, then rerun preflight.");
+  if (hookPolicy.blocker) return hookPolicy.blocker;
+  if (hookPolicy.mode === "managed") {
+    return passed("Codex configuration is valid and required Entire hooks are managed.");
   }
   return passed("Codex configuration is valid and hooks are effectively enabled.");
 }
 
-async function codexManagedHooksOnly(requirementsPath) {
+async function codexHookPolicy(requirementsPath) {
   const source = await readFile(requirementsPath, "utf8").catch((error) => {
     if (error?.code === "ENOENT") return null;
     throw error;
   });
-  if (source === null) return false;
-  return tomlBooleanAssignment(source, "allow_managed_hooks_only") === true;
+  if (source === null || tomlBooleanAssignment(source, "allow_managed_hooks_only") !== true) {
+    return { mode: "project", blocker: null };
+  }
+  const missing = missingManagedEntireHooks(source);
+  return missing.length === 0
+    ? { mode: "managed", blocker: null }
+    : {
+      mode: "managed",
+      blocker: blocked(`Managed Codex Entire hooks missing: ${missing.join(", ")}.`, "Install all four required Entire hooks in managed Codex policy, then rerun preflight."),
+    };
+}
+
+function missingManagedEntireHooks(source) {
+  return REQUIRED_CODEX_HOOKS.filter((required) => !tomlArrayTableBodies(source, `hooks.${required.configEvent}.hooks`)
+    .map(managedHookFromToml)
+    .some((handler) => matchesRequiredEntireHook(handler, required.command)))
+    .map((required) => required.event);
+}
+
+function managedHookFromToml(body) {
+  return {
+    type: tomlStringAssignment(body, "type"),
+    command: tomlStringAssignment(body, "command"),
+    commandWindows: tomlStringAssignment(body, "commandWindows") ?? tomlStringAssignment(body, "command_windows"),
+    async: tomlBooleanAssignment(body, "async") === true,
+  };
 }
 
 function codexHookConfigBlocker(config, canonicalRepo) {
@@ -165,9 +194,15 @@ function codexHookConfigBlocker(config, canonicalRepo) {
 
 async function checkEntireMetadata(store, options) {
   const backend = await configuredEntireBackend(store.repoPath, options.entireCheckpointsPrimary);
-  if (backend === "git-refs") return checkEntireMetadataRefs(store, options.remoteRefsReader, options.profile);
+  if (backend === "git-refs") return checkEntireGitRefsBackend(store, options);
   if (backend !== "git-branch") throw new Error(`Unsupported Entire checkpoint backend: ${backend}.`);
   return checkEntireMetadataBranch(store, options.remoteRefReader, options.profile);
+}
+
+function checkEntireGitRefsBackend(store, options) {
+  return options.profile === "release"
+    ? blocked("Release publication does not support the Entire git-refs checkpoint backend.", "Use git-branch for release or add git-refs publication support first.")
+    : checkEntireMetadataRefs(store, options.remoteRefsReader, options.profile);
 }
 
 async function configuredEntireBackend(repoPath, override) {
@@ -226,7 +261,7 @@ async function checkEntireMetadataRefs(store, remoteRefsReader, profile) {
     listLocalCheckpointRefs(store, prefix),
     remoteRefsReader({ repoPath: store.repoPath, remote: platform.workflow.controlRemoteName, prefix }),
   ]);
-  const emptyResult = emptyCheckpointRefsResult(local, remote, profile);
+  const emptyResult = emptyCheckpointRefsResult(local, profile);
   if (emptyResult) return emptyResult;
   const remoteBlocker = await remoteCheckpointRefsBlocker(store, local, remote);
   if (remoteBlocker) return remoteBlocker;
@@ -234,19 +269,20 @@ async function checkEntireMetadataRefs(store, remoteRefsReader, profile) {
   return checkpointRefsResult(invalidRef);
 }
 
-function emptyCheckpointRefsResult(local, remote, profile) {
-  if (local.size !== 0 || remote.size !== 0) return null;
+function emptyCheckpointRefsResult(local, profile) {
+  if (local.size !== 0) return null;
   return emptyMetadataResult([], profile === "agent");
 }
 
 function checkpointRefsResult(invalidRef) {
   return invalidRef
     ? blocked(`Entire checkpoint metadata is invalid: ${invalidRef}.`, "Repair the checkpoint ref explicitly, then rerun preflight.")
-    : passed("Live remote Entire checkpoint refs are contained locally and checkpoint contents are valid.");
+    : passed("Local Entire checkpoint refs are valid and matching live remote refs are contained locally.");
 }
 
 async function remoteCheckpointRefsBlocker(store, local, remote) {
   for (const [ref, remoteOid] of remote) {
+    if (!local.has(ref)) continue;
     const result = await remoteCheckpointRefBlocker(store, ref, remoteOid, local.get(ref));
     if (result) return result;
   }
@@ -483,6 +519,12 @@ function tomlQuotedTableSections(config, prefix) {
   });
 }
 
+function tomlArrayTableBodies(config, path) {
+  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^\\[\\[${escaped}\\]\\]\\s*(?:#[^\\r\\n]*)?\\r?\\n((?:(?!^\\[)[\\s\\S])*)`, "gm");
+  return [...config.matchAll(pattern)].map((match) => match[1]);
+}
+
 function tomlBooleanAssignment(body, key) {
   const value = tomlAssignment(body, key);
   if (value === "true") return true;
@@ -643,8 +685,8 @@ function matchesRequiredEntireHook(hook, expectedCommand) {
   if (!validEntireHookShape(hook)) return false;
   const direct = new RegExp(`^(?:exec )?entire hooks codex ${expectedCommand}$`);
   const guarded = new RegExp(`^sh -c 'if ! command -v entire >/dev/null 2>&1; then .+; fi; exec entire hooks codex ${expectedCommand}'$`);
-  const commands = [hook.command, hook.commandWindows].filter((command) => command != null);
-  return commands.every((command) => requiredHookCommandMatches(command, [direct, guarded]));
+  if (!requiredHookCommandMatches(hook.command, [direct, guarded])) return false;
+  return hook.commandWindows == null || windowsHookCommandMatches(hook.commandWindows, expectedCommand);
 }
 
 function validEntireHookShape(hook) {
@@ -653,6 +695,15 @@ function validEntireHookShape(hook) {
 
 function requiredHookCommandMatches(command, patterns) {
   return typeof command === "string" && patterns.some((pattern) => pattern.test(command));
+}
+
+function windowsHookCommandMatches(command, expectedCommand) {
+  if (typeof command !== "string") return false;
+  const direct = new RegExp(`^(?:exec )?entire(?:\\.exe)? hooks codex ${expectedCommand}$`, "i");
+  if (direct.test(command)) return true;
+  const shell = /^(?:cmd(?:\.exe)?\b.*\s\/(?:c|k)\b|(?:powershell|pwsh)(?:\.exe)?\b.*\s-(?:command|c)\b)/i;
+  const invocation = new RegExp(`(?:^|[\\s\"'&|;()])entire(?:\\.exe)?\\s+hooks\\s+codex\\s+${expectedCommand}(?=$|[\\s\"'&|;()])`, "i");
+  return shell.test(command) && invocation.test(command);
 }
 
 function firstBlocker(rules, fallback) {

@@ -89,9 +89,14 @@ test("preflight requires active hooks and a trusted project layer", async (t) =>
   assert.match(malformedState.checks.find((check) => check.id === "codex-hook-trust").detail, /stop/);
 
   await writeFile(fixture.codexRequirementsPath, "allow_managed_hooks_only = true\n");
-  const managedOnly = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
-  assert.match(managedOnly.checks.find((check) => check.id === "codex-config").detail, /managed-only/);
-  assert.match(managedOnly.checks.find((check) => check.id === "codex-hook-trust").detail, /unproven/);
+  const missingManaged = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assert.match(missingManaged.checks.find((check) => check.id === "codex-config").detail, /Managed Codex Entire hooks missing/);
+  assert.match(missingManaged.checks.find((check) => check.id === "codex-hook-trust").detail, /unproven/);
+
+  await writeFile(fixture.codexRequirementsPath, managedEntireRequirements());
+  const managed = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assert.equal(managed.checks.find((check) => check.id === "codex-config").status, "passed");
+  assert.match(managed.checks.find((check) => check.id === "codex-hook-trust").detail, /managed Codex policy/);
 });
 
 test("preflight verifies Entire metadata ancestry without repairing it", async (t) => {
@@ -182,6 +187,13 @@ test("preflight verifies the configured Entire git-refs checkpoint backend", asy
   const result = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
   assert.equal(result.checks.find((check) => check.id === "entire-metadata").status, "passed");
 
+  fixture.liveCheckpointRefs.set("refs/entire/checkpoints/ZZ/01JZZZZZZZZZZZZZZZZZZZZZZZ", "e".repeat(40));
+  const remoteOnly = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assert.equal(remoteOnly.checks.find((check) => check.id === "entire-metadata").status, "passed");
+
+  const release = await runPreparedPreflight(fixture, { profile: "release", commandRunner: fakeCommands() });
+  assert.match(release.checks.find((check) => check.id === "entire-metadata").detail, /does not support.*git-refs/);
+
   fixture.liveCheckpointRefs = new Map([[ref, "f".repeat(40)]]);
   const unfetched = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
   assert.match(unfetched.checks.find((check) => check.id === "entire-metadata").detail, /not available locally/);
@@ -228,10 +240,15 @@ test("preflight requires executable Entire hook commands, not empty event keys",
   await writeEntireHooks(fixture.seed, (command) => `entire hooks codex ${command}`);
   const hooksPath = join(fixture.seed, ".codex", "hooks.json");
   const platformHooks = JSON.parse(await readFile(hooksPath, "utf8"));
-  platformHooks.hooks.Stop[0].hooks[0].commandWindows = "exit 0";
+  platformHooks.hooks.Stop[0].hooks[0].commandWindows = 'cmd.exe /d /s /c "where entire >nul 2>nul && entire hooks codex stop"';
   await writeFile(hooksPath, JSON.stringify(platformHooks));
   const windowsOverride = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
-  assert.match(windowsOverride.checks.find((check) => check.id === "codex-hooks").detail, /stop/);
+  assert.equal(windowsOverride.checks.find((check) => check.id === "codex-hooks").status, "passed");
+
+  platformHooks.hooks.Stop[0].hooks[0].commandWindows = "exit 0";
+  await writeFile(hooksPath, JSON.stringify(platformHooks));
+  const invalidWindowsOverride = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assert.match(invalidWindowsOverride.checks.find((check) => check.id === "codex-hooks").detail, /stop/);
 
   delete platformHooks.hooks.Stop[0].hooks[0].commandWindows;
   platformHooks.hooks.Stop[0].hooks[0].async = true;
@@ -411,4 +428,28 @@ function fakeCommands({ privateControl = true, invalidCodexConfig = false, effec
 
 function result(stdout, stderr = "") {
   return { stdout, stderr, exitCode: 0, signal: null };
+}
+
+function managedEntireRequirements() {
+  const events = [
+    ["SessionStart", "session-start"],
+    ["UserPromptSubmit", "user-prompt-submit"],
+    ["Stop", "stop"],
+    ["PostToolUse", "post-tool-use"],
+  ];
+  return [
+    "allow_managed_hooks_only = true",
+    "",
+    "[hooks]",
+    'managed_dir = "/enterprise/hooks"',
+    "",
+    ...events.flatMap(([event, command]) => [
+      `[[hooks.${event}]]`,
+      "",
+      `[[hooks.${event}.hooks]]`,
+      'type = "command"',
+      `command = "entire hooks codex ${command}"`,
+      "",
+    ]),
+  ].join("\n");
 }
