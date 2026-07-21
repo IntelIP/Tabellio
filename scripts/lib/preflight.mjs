@@ -423,7 +423,7 @@ function repositoryMatchBlocker(remote, control, scope) {
 }
 
 function automaticCheckpointPushBlocker(local, project) {
-  return effectivePushSessions(local, project) === false
+  return project?.strategy_options?.push_sessions === false && effectivePushSessions(local, project) === false
     ? null
     : blocked(
         "Entire automatic checkpoint pushing is not disabled.",

@@ -362,7 +362,16 @@ test("preflight requires an approval-gated Entire checkpoint remote", async (t) 
     },
   }));
   const automatic = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
-  assert.match(automatic.checks.find((check) => check.id === "entire-metadata").detail, /automatic checkpoint pushing is not disabled/);
+  assertEntireMetadataBlocked(automatic, /automatic checkpoint pushing is not disabled/);
+
+  await writeFile(join(fixture.seed, ".entire", "settings.local.json"), JSON.stringify({
+    strategy_options: {
+      checkpoint_remote: { provider: "github", repo: "example/repository-control" },
+      push_sessions: false,
+    },
+  }));
+  const locallyMaskedAutomatic = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assertEntireMetadataBlocked(locallyMaskedAutomatic, /automatic checkpoint pushing is not disabled/);
 
   await writeFile(join(fixture.seed, ".entire", "settings.local.json"), JSON.stringify({
     strategy_options: {
@@ -621,6 +630,10 @@ function assertHookChecksPassed(result) {
   for (const id of ["codex-hooks", "codex-hook-trust"]) {
     assert.equal(result.checks.find((check) => check.id === id).status, "passed");
   }
+}
+
+function assertEntireMetadataBlocked(result, pattern) {
+  assert.match(result.checks.find((check) => check.id === "entire-metadata").detail, pattern);
 }
 
 async function commitCheckpointAndAssertValid(fixture, message) {
