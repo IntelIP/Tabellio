@@ -179,7 +179,7 @@ async function checkCodexConfig({ commandRunner, codexBinary, cwd, hookPolicy })
 }
 
 async function codexHookPolicy(requirements, effectiveHooks) {
-  const managedEvents = managedEntireHookEvents(effectiveHooks);
+  const managedEvents = managedEntireHookEvents(effectiveHooks, requirementsHooks(requirements));
   const missing = REQUIRED_CODEX_HOOKS.filter((required) => !managedEvents.includes(required.configEvent)).map((required) => required.event);
   if (missing.length === 0) return { mode: "managed", blocker: null, managedEvents };
   if (managedHooksOnly(requirements)) {
@@ -200,9 +200,14 @@ function managedHooksOnly(requirements) {
   return requirements != null && requirements.allowManagedHooksOnly === true;
 }
 
-function managedEntireHookEvents(hooks) {
+function requirementsHooks(requirements) {
+  return requirements == null ? null : requirements.hooks;
+}
+
+function managedEntireHookEvents(hooks, configuredHooks) {
   const inventory = Array.isArray(hooks) ? hooks : [];
-  return REQUIRED_CODEX_HOOKS.filter((required) => inventory.some((hook) => managedHookMatches(hook, required)))
+  return REQUIRED_CODEX_HOOKS.filter((required) => inventory.some((hook) => managedHookMatches(hook, required))
+    && hasEntireHook(configuredHooks?.[required.configEvent], required.command, required.configEvent))
     .map((required) => required.configEvent);
 }
 
@@ -212,19 +217,22 @@ function managedHookMatches(hook, required) {
     isManaged: candidate.isManaged,
     enabled: candidate.enabled,
     trustStatus: candidate.trustStatus,
-    eventName: candidate.eventName,
   });
   const requiredIdentity = JSON.stringify({
     isManaged: true,
     enabled: true,
     trustStatus: "managed",
-    eventName: lowerCamel(required.configEvent),
   });
   return [
     identity === requiredIdentity,
+    managedEventNameMatches(candidate.eventName, required),
     hookGroupAppliesToAll(candidate, required.configEvent),
-    matchesRequiredEntireHook({ type: candidate.handlerType, command: candidate.command, async: false }, required.command),
+    matchesRequiredEntireHook({ type: candidate.handlerType, command: candidate.command, async: candidate.async }, required.command),
   ].every(Boolean);
+}
+
+function managedEventNameMatches(eventName, required) {
+  return [lowerCamel(required.configEvent), required.event].includes(eventName);
 }
 
 function lowerCamel(value) {
@@ -455,7 +463,7 @@ async function checkEntireMetadataContents(store, localRef, { allowEmpty }) {
   const files = await store.listFiles(localRef);
   const emptyResult = emptyMetadataResult(files, allowEmpty);
   if (emptyResult) return emptyResult;
-  const metadataPaths = files.filter((path) => /^[0-9a-f]{2}\/[0-9a-f]{10}\/metadata\.json$/.test(path));
+  const metadataPaths = files.filter((path) => /^(?:[0-9a-f]{2}\/[0-9a-f]{10}|[0-9A-HJKMNP-TV-Z]{2}\/[0-9A-HJKMNP-TV-Z]{24})\/metadata\.json$/.test(path));
   if (metadataPaths.length === 0) {
     return blocked("Entire metadata branch contains no checkpoint metadata.", "Restore usable Entire checkpoint metadata, then rerun preflight.");
   }
@@ -795,7 +803,7 @@ function privateControlResult(repository, control, selectedControl) {
 }
 
 async function checkCodexHooks(store, managedEvents) {
-  const { hooksPath } = await codexProjectHookSource(store.repoPath);
+  const hooksPath = await realpath(resolve(store.repoPath, ".codex", "hooks.json"));
   const hooks = JSON.parse(await readFile(hooksPath, "utf8"));
   const declared = new Map(Object.entries(hooks.hooks || {}).map(([name, entries]) => [name.toLowerCase(), entries]));
   const required = REQUIRED_CODEX_HOOKS.filter((hook) => !managedEvents.includes(hook.configEvent));
@@ -837,7 +845,11 @@ function hasEntireHook(entries, expectedCommand, event) {
 }
 
 function hookGroupAppliesToAll(group, event) {
-  return matcherIgnoredForEvent(event) || documentedAllMatcher(group?.matcher);
+  return [
+    matcherIgnoredForEvent(event),
+    documentedAllMatcher(group?.matcher),
+    sessionStartMatcherAppliesToAll(group?.matcher, event),
+  ].some(Boolean);
 }
 
 function matcherIgnoredForEvent(event) {
@@ -846,6 +858,16 @@ function matcherIgnoredForEvent(event) {
 
 function documentedAllMatcher(matcher) {
   return matcher == null || ["", "*"].includes(matcher);
+}
+
+function sessionStartMatcherAppliesToAll(matcher, event) {
+  if (event.toLowerCase() !== "sessionstart" || typeof matcher !== "string") return false;
+  try {
+    const pattern = new RegExp(matcher);
+    return ["startup", "resume", "clear", "compact"].every((source) => pattern.test(source));
+  } catch {
+    return false;
+  }
 }
 
 function hookCommands(entry) {

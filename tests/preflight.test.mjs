@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -100,6 +100,23 @@ test("preflight requires active hooks and a trusted project layer", async (t) =>
   assert.equal(managed.checks.find((check) => check.id === "codex-hooks").status, "passed");
   assert.match(managed.checks.find((check) => check.id === "codex-hook-trust").detail, /managed Codex policy/);
 
+  fixture.codexRequirements.hooks.Stop[0].hooks[0].async = true;
+  const asynchronousManaged = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assert.match(asynchronousManaged.checks.find((check) => check.id === "codex-config").detail, /stop/);
+  fixture.codexRequirements.hooks.Stop[0].hooks[0].async = false;
+
+  const snakeCaseManaged = await runPreparedPreflight(fixture, {
+    commandRunner: fakeCommands(),
+    codexStateReader: async () => ({
+      requirements: fixture.codexRequirements,
+      hooks: effectiveManagedHooks(fixture.codexRequirements).map((hook) => ({
+        ...hook,
+        eventName: hookEventSnakeCase(hook.eventName),
+      })),
+    }),
+  });
+  assert.equal(snakeCaseManaged.checks.find((check) => check.id === "codex-config").status, "passed");
+
   fixture.codexRequirements.allowManagedHooksOnly = false;
   const managedWithoutLockdown = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
   assert.equal(managedWithoutLockdown.checks.find((check) => check.id === "codex-config").status, "passed");
@@ -131,7 +148,7 @@ test("preflight requires active hooks and a trusted project layer", async (t) =>
   assert.equal(mixed.checks.find((check) => check.id === "codex-hook-trust").status, "passed");
 });
 
-test("preflight resolves Codex project hooks and trust from the root checkout in linked worktrees", async (t) => {
+test("preflight preserves active declarations while resolving linked-worktree hook trust", async (t) => {
   const fixture = await preparedFixture(t);
   await runGit({ args: ["add", "--", ".codex/hooks.json", "tabellio.platform.json"], cwd: fixture.seed });
   await runGit({ args: ["commit", "-m", "Commit linked worktree inputs"], cwd: fixture.seed, env: identityEnv() });
@@ -141,9 +158,44 @@ test("preflight resolves Codex project hooks and trust from the root checkout in
     const result = await runPreparedPreflight(fixture, { repoPath: linked, commandRunner: fakeCommands() });
     assert.equal(result.checks.find((check) => check.id === "codex-hooks").status, "passed");
     assert.equal(result.checks.find((check) => check.id === "codex-hook-trust").status, "passed");
+
+    const linkedHooksPath = join(linked, ".codex", "hooks.json");
+    const linkedHooks = JSON.parse(await readFile(linkedHooksPath, "utf8"));
+    delete linkedHooks.hooks.Stop;
+    await writeFile(linkedHooksPath, JSON.stringify(linkedHooks));
+    const staleLinked = await runPreparedPreflight(fixture, { repoPath: linked, commandRunner: fakeCommands() });
+    assert.match(staleLinked.checks.find((check) => check.id === "codex-hooks").detail, /stop/);
   } finally {
     await runGit({ args: ["worktree", "remove", "--force", linked], cwd: fixture.seed });
   }
+});
+
+test("preflight accepts valid ULID checkpoint directory layouts", async (t) => {
+  const fixture = await preparedFixture(t);
+  const checkpointId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const checkpointRoot = join(fixture.seed, "01", checkpointId.slice(2));
+  await rename(join(fixture.seed, "ab"), join(fixture.seed, "01"));
+  await rename(join(fixture.seed, "01", "cdef123456"), checkpointRoot);
+  const rootMetadataPath = join(checkpointRoot, "metadata.json");
+  const rootMetadata = JSON.parse(await readFile(rootMetadataPath, "utf8"));
+  const sessionPrefix = `/01/${checkpointId.slice(2)}/0`;
+  rootMetadata.checkpoint_id = checkpointId;
+  rootMetadata.sessions[0] = {
+    metadata: `${sessionPrefix}/metadata.json`,
+    transcript: `${sessionPrefix}/full.jsonl`,
+    content_hash: `${sessionPrefix}/content_hash.txt`,
+  };
+  await writeFile(rootMetadataPath, JSON.stringify(rootMetadata));
+  await writeFile(join(checkpointRoot, "0", "metadata.json"), JSON.stringify({
+    checkpoint_id: checkpointId,
+    session_id: "session-fixture",
+  }) + "\n");
+  await runGit({ args: ["add", "-A"], cwd: fixture.seed });
+  await runGit({ args: ["commit", "-m", "Use ULID checkpoint layout"], cwd: fixture.seed, env: identityEnv() });
+  await runGit({ args: ["update-ref", "refs/heads/entire/checkpoints/v1", "HEAD"], cwd: fixture.seed });
+  fixture.liveControlOid = (await runGit({ args: ["rev-parse", "HEAD"], cwd: fixture.seed })).stdout.trim();
+  const result = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assert.equal(result.checks.find((check) => check.id === "entire-metadata").status, "passed");
 });
 
 test("preflight verifies Entire metadata ancestry without repairing it", async (t) => {
@@ -344,6 +396,7 @@ test("preflight requires executable Entire hook commands, not empty event keys",
   delete platformHooks.hooks.Stop[0].hooks[0].commandWindows;
   platformHooks.hooks.UserPromptSubmit[0].matcher = "ignored";
   platformHooks.hooks.Stop[0].matcher = "ignored";
+  platformHooks.hooks.SessionStart[0].matcher = "startup|resume|clear|compact";
   platformHooks.hooks.PostToolUse[0].matcher = "*";
   await writeFile(hooksPath, JSON.stringify(platformHooks));
   const documentedAllMatchers = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
@@ -572,4 +625,8 @@ function effectiveManagedHooks(requirements) {
       matcher: group.matcher ?? null,
     }))
   )));
+}
+
+function hookEventSnakeCase(eventName) {
+  return eventName.replace(/[A-Z]/g, (character) => `_${character.toLowerCase()}`);
 }
