@@ -9,7 +9,6 @@ import { contract } from "./contract-checks.mjs";
 import {
   effectiveGitHubRepository,
   readRemoteRefOid,
-  readRemoteRefs,
   sameGitHubRepository,
 } from "./github-repository.mjs";
 import { validatePlatformConfig } from "./platform-config.mjs";
@@ -35,7 +34,6 @@ export async function runPreflight({
   commandRunner = runExternalCommand,
   controlRemote = null,
   remoteRefReader = readRemoteRefOid,
-  remoteRefsReader = readRemoteRefs,
   remoteRepositoryReader = effectiveGitHubRepository,
   nodeVersion = process.versions.node,
   codexConfigPath = defaultCodexConfigPath(),
@@ -62,8 +60,6 @@ export async function runPreflight({
     return passed(`Repository ${repositoryId}.`);
   });
 
-  await recordRepositoryChecks({ checks, store, profile, commandRunner, ghBinary, controlRemote, remoteRefReader, remoteRepositoryReader });
-
   await record(checks, "entire-version", async () => {
     const result = await commandRunner({ binary: entireBinary, args: ["--version"], cwd: resolvedRepo, timeoutMs: 30_000 });
     const version = parseEntireVersion(`${result.stdout}\n${result.stderr}`);
@@ -85,11 +81,12 @@ export async function runPreflight({
   });
 
   await record(checks, "entire-metadata", () => store
-    ? checkEntireMetadata(store, { remoteRefReader, remoteRefsReader, profile, entireCheckpointsPrimary })
+    ? checkEntireMetadata(store, { remoteRefReader, profile, entireCheckpointsPrimary })
     : blocked("Entire metadata storage could not be inspected.", "Open a Git repository, then rerun preflight."));
 
   await record(checks, "codex-config", async () => {
     const hookPolicy = await codexHookPolicy(codexRequirementsPath);
+    codexHookMode = hookPolicy.mode;
     const result = await checkCodexConfig({
       commandRunner,
       codexBinary,
@@ -97,8 +94,19 @@ export async function runPreflight({
       hookPolicy,
     });
     codexConfigReady = result.status === "passed";
-    codexHookMode = codexConfigReady ? hookPolicy.mode : null;
     return result;
+  });
+
+  await recordRepositoryChecks({
+    checks,
+    store,
+    profile,
+    commandRunner,
+    ghBinary,
+    controlRemote,
+    remoteRefReader,
+    remoteRepositoryReader,
+    codexHookMode,
   });
 
   await record(checks, "codex-hook-trust", () => codexConfigReady
@@ -194,15 +202,14 @@ function codexHookConfigBlocker(config, canonicalRepo) {
 
 async function checkEntireMetadata(store, options) {
   const backend = await configuredEntireBackend(store.repoPath, options.entireCheckpointsPrimary);
-  if (backend === "git-refs") return checkEntireGitRefsBackend(store, options);
+  if (backend === "git-refs") {
+    return blocked(
+      "Tabellio release publication does not support the Entire git-refs checkpoint backend.",
+      "Configure Entire to use git-branch before agent work, then rerun preflight.",
+    );
+  }
   if (backend !== "git-branch") throw new Error(`Unsupported Entire checkpoint backend: ${backend}.`);
   return checkEntireMetadataBranch(store, options.remoteRefReader, options.profile);
-}
-
-function checkEntireGitRefsBackend(store, options) {
-  return options.profile === "release"
-    ? blocked("Release publication does not support the Entire git-refs checkpoint backend.", "Use git-branch for release or add git-refs publication support first.")
-    : checkEntireMetadataRefs(store, options.remoteRefsReader, options.profile);
 }
 
 async function configuredEntireBackend(repoPath, override) {
@@ -240,7 +247,7 @@ async function checkEntireMetadataBranch(store, remoteRefReader, profile) {
   const platform = await readPlatformConfig(store);
   const localRef = platform.ledger.checkpointRef;
   if (!(await store.hasRef(localRef))) {
-    return blocked(`Entire metadata branch missing: ${localRef}.`, "Restore the local checkpoint metadata branch, then rerun preflight.");
+    return checkMissingMetadataBranch(store, platform, localRef, remoteRefReader, profile);
   }
   const remote = platform.workflow.controlRemoteName;
   const liveRemote = await remoteRefReader({ repoPath: store.repoPath, remote, ref: localRef });
@@ -254,92 +261,22 @@ async function checkEntireMetadataBranch(store, remoteRefReader, profile) {
   return checkEntireMetadataContents(store, localRef, { allowEmpty: profile === "agent" });
 }
 
-async function checkEntireMetadataRefs(store, remoteRefsReader, profile) {
-  const platform = await readPlatformConfig(store);
-  const prefix = "refs/entire/checkpoints/";
-  const [local, remote] = await Promise.all([
-    listLocalCheckpointRefs(store, prefix),
-    remoteRefsReader({ repoPath: store.repoPath, remote: platform.workflow.controlRemoteName, prefix }),
-  ]);
-  const emptyResult = emptyCheckpointRefsResult(local, profile);
-  if (emptyResult) return emptyResult;
-  const remoteBlocker = await remoteCheckpointRefsBlocker(store, local, remote);
-  if (remoteBlocker) return remoteBlocker;
-  const invalidRef = await firstInvalidCheckpointRef(store, local.keys(), prefix);
-  return checkpointRefsResult(invalidRef);
-}
-
-function emptyCheckpointRefsResult(local, profile) {
-  if (local.size !== 0) return null;
-  return emptyMetadataResult([], profile === "agent");
-}
-
-function checkpointRefsResult(invalidRef) {
-  return invalidRef
-    ? blocked(`Entire checkpoint metadata is invalid: ${invalidRef}.`, "Repair the checkpoint ref explicitly, then rerun preflight.")
-    : passed("Local Entire checkpoint refs are valid and matching live remote refs are contained locally.");
-}
-
-async function remoteCheckpointRefsBlocker(store, local, remote) {
-  for (const [ref, remoteOid] of remote) {
-    if (!local.has(ref)) continue;
-    const result = await remoteCheckpointRefBlocker(store, ref, remoteOid, local.get(ref));
-    if (result) return result;
-  }
-  return null;
-}
-
-async function remoteCheckpointRefBlocker(store, ref, remoteOid, localOid) {
-  if (!localOid) {
-    return blocked(`Live remote Entire checkpoint ref is not available locally: ${ref}.`, "Fetch the checkpoint refs, then rerun preflight.");
-  }
-  const remoteObject = await store.resolveRef(remoteOid).catch(() => null);
-  if (!remoteObject) {
-    return blocked(`Live remote Entire checkpoint commit is not available locally: ${ref}.`, "Fetch the checkpoint refs, then rerun preflight.");
-  }
-  if (!(await store.isAncestor(remoteOid, localOid))) {
-    return blocked(`Live remote Entire checkpoint ref is ahead, divergent, or disconnected: ${ref}.`, "Fetch and reconcile the checkpoint ref explicitly, then rerun preflight.");
-  }
-  return null;
-}
-
-async function firstInvalidCheckpointRef(store, refs, prefix) {
-  for (const ref of refs) {
-    const checkpointId = checkpointIdFromRef(ref, prefix);
-    if (!checkpointId || !(await validCheckpointRefContents(store, ref, checkpointId))) return ref;
-  }
-  return null;
-}
-
-async function listLocalCheckpointRefs(store, prefix) {
-  const result = await runGit({
-    args: ["for-each-ref", "--format=%(refname)%00%(objectname)", prefix],
-    cwd: store.repoPath,
+async function checkMissingMetadataBranch(store, platform, localRef, remoteRefReader, profile) {
+  const blocker = blocked(`Entire metadata branch missing: ${localRef}.`, "Restore the local checkpoint metadata branch, then rerun preflight.");
+  if (profile !== "agent") return blocker;
+  const liveRemote = await remoteRefReader({
+    repoPath: store.repoPath,
+    remote: platform.workflow.controlRemoteName,
+    ref: localRef,
+    allowMissing: true,
   });
-  return new Map(result.stdout.split(/\r?\n/).filter(Boolean).map((row) => row.split("\0")));
-}
-
-function checkpointIdFromRef(ref, prefix) {
-  if (!ref.startsWith(prefix)) return null;
-  const match = ref.slice(prefix.length).match(/^([^/]+)\/([^/]+)$/);
-  if (!match) return null;
-  const [, shard, checkpointId] = match;
-  return validCheckpointRefName(shard, checkpointId) ? checkpointId : null;
-}
-
-function validCheckpointRefName(shard, checkpointId) {
-  return validCheckpointId(checkpointId) && shard === checkpointId.slice(-2);
+  return liveRemote === null
+    ? passed("Entire metadata branch is not initialized yet; first agent checkpoint may create it.")
+    : blocker;
 }
 
 function validCheckpointId(value) {
   return /^[0-9a-f]{12}$/.test(value) || /^[0-9A-HJKMNP-TV-Z]{26}$/.test(value);
-}
-
-async function validCheckpointRefContents(store, ref, checkpointId) {
-  const files = await store.listFiles(ref);
-  if (!files.includes("metadata.json")) return false;
-  const result = await runGit({ args: ["show", `${ref}:metadata.json`], cwd: store.repoPath, gitDir: store.gitDir });
-  return validCheckpointMetadata(JSON.parse(result.stdout), "metadata.json", new Set(files), checkpointId);
 }
 
 async function checkEntireMetadataContents(store, localRef, { allowEmpty }) {
@@ -582,11 +519,13 @@ export function validatePreflightResult(value) {
   return value;
 }
 
-async function recordRepositoryChecks({ checks, store, profile, commandRunner, ghBinary, controlRemote, remoteRefReader, remoteRepositoryReader }) {
+async function recordRepositoryChecks({ checks, store, profile, commandRunner, ghBinary, controlRemote, remoteRefReader, remoteRepositoryReader, codexHookMode }) {
   if (!store) return;
   await record(checks, "platform-contract", () => checkPlatformContract(store));
   await record(checks, "github-remotes", () => checkGitHubRemotes({ store, commandRunner, ghBinary, controlRemote, remoteRepositoryReader }));
-  await record(checks, "codex-hooks", () => checkCodexHooks(store));
+  await record(checks, "codex-hooks", () => codexHookMode === "managed"
+    ? passed("Project hook declarations are skipped because managed-only Codex policy enforces Entire hooks.")
+    : checkCodexHooks(store));
   if (profile === "release") await record(checks, "clean-main", () => checkCleanMain(store, remoteRefReader));
 }
 

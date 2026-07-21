@@ -103,6 +103,8 @@ npm run tabellio:platform:check
 node scripts/tabellio-validate.mjs run --repo . --commit HEAD --manifest tabellio.validation.json
 ```
 
+Keep Entire on its `git-branch` checkpoint backend. Tabellio release publication currently transports `refs/heads/entire/checkpoints/v1`; preflight blocks `git-refs` before agent work so release readiness remains reachable.
+
 Use `gate` in CI. It persists the same exact-head result but exits non-zero unless the final decision is `passed`:
 
 ```bash

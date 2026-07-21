@@ -94,8 +94,10 @@ test("preflight requires active hooks and a trusted project layer", async (t) =>
   assert.match(missingManaged.checks.find((check) => check.id === "codex-hook-trust").detail, /unproven/);
 
   await writeFile(fixture.codexRequirementsPath, managedEntireRequirements());
+  await writeFile(join(fixture.seed, ".codex", "hooks.json"), JSON.stringify({ hooks: {} }));
   const managed = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
   assert.equal(managed.checks.find((check) => check.id === "codex-config").status, "passed");
+  assert.equal(managed.checks.find((check) => check.id === "codex-hooks").status, "passed");
   assert.match(managed.checks.find((check) => check.id === "codex-hook-trust").detail, /managed Codex policy/);
 });
 
@@ -105,6 +107,12 @@ test("preflight verifies Entire metadata ancestry without repairing it", async (
   await runGit({ args: ["update-ref", "-d", localRef], cwd: fixture.seed });
   const missing = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
   assert.match(missing.checks.find((check) => check.id === "entire-metadata").detail, /missing/);
+
+  const firstRun = await runPreparedPreflight(fixture, {
+    commandRunner: fakeCommands(),
+    remoteRefReader: async ({ allowMissing }) => allowMissing ? null : fixture.liveControlOid,
+  });
+  assert.equal(firstRun.checks.find((check) => check.id === "entire-metadata").status, "passed");
   await runGit({ args: ["update-ref", localRef, "HEAD"], cwd: fixture.seed });
 
   const tree = (await runGit({ args: ["rev-parse", "HEAD^{tree}"], cwd: fixture.seed })).stdout.trim();
@@ -161,42 +169,16 @@ test("preflight verifies Entire metadata ancestry without repairing it", async (
   assert.match(emptyRelease.checks.find((check) => check.id === "entire-metadata").detail, /no checkpoint metadata/);
 });
 
-test("preflight verifies the configured Entire git-refs checkpoint backend", async (t) => {
+test("preflight rejects the Entire git-refs backend before agent work", async (t) => {
   const fixture = await preparedFixture(t);
   await mkdir(join(fixture.seed, ".entire"), { recursive: true });
   await writeFile(join(fixture.seed, ".entire", "settings.json"), JSON.stringify({
     checkpoints: { primary: { type: "git-refs" } },
   }));
-  const checkpointId = "abcdef123456";
-  const ref = `refs/entire/checkpoints/${checkpointId.slice(-2)}/${checkpointId}`;
-  const metadataPath = join(fixture.seed, "ab", "cdef123456", "metadata.json");
-  const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
-  metadata.sessions = metadata.sessions.map((session) => Object.fromEntries(Object.entries(session)
-    .map(([key, value]) => [key, value.replace("/ab/cdef123456", "")])));
-  await writeFile(metadataPath, JSON.stringify(metadata));
-  await runGit({ args: ["add", "--", "ab/cdef123456/metadata.json"], cwd: fixture.seed });
-  await runGit({ args: ["commit", "-m", "Prepare ref checkpoint"], cwd: fixture.seed, env: identityEnv() });
-  const tree = (await runGit({ args: ["rev-parse", "HEAD:ab/cdef123456"], cwd: fixture.seed })).stdout.trim();
-  const commit = (await runGit({
-    args: ["commit-tree", tree, "-m", "Store ref checkpoint"],
-    cwd: fixture.seed,
-    env: identityEnv(),
-  })).stdout.trim();
-  await runGit({ args: ["update-ref", ref, commit], cwd: fixture.seed });
-  fixture.liveCheckpointRefs = new Map([[ref, commit]]);
-  const result = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
-  assert.equal(result.checks.find((check) => check.id === "entire-metadata").status, "passed");
-
-  fixture.liveCheckpointRefs.set("refs/entire/checkpoints/ZZ/01JZZZZZZZZZZZZZZZZZZZZZZZ", "e".repeat(40));
-  const remoteOnly = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
-  assert.equal(remoteOnly.checks.find((check) => check.id === "entire-metadata").status, "passed");
-
+  const agent = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assert.match(agent.checks.find((check) => check.id === "entire-metadata").detail, /does not support.*git-refs/);
   const release = await runPreparedPreflight(fixture, { profile: "release", commandRunner: fakeCommands() });
   assert.match(release.checks.find((check) => check.id === "entire-metadata").detail, /does not support.*git-refs/);
-
-  fixture.liveCheckpointRefs = new Map([[ref, "f".repeat(40)]]);
-  const unfetched = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
-  assert.match(unfetched.checks.find((check) => check.id === "entire-metadata").detail, /not available locally/);
 });
 
 test("preflight uses the repository root and rejects invalid Codex configuration", async (t) => {
