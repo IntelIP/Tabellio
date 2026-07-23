@@ -10,12 +10,29 @@ const AGENT_REVIEW_SCHEMA_VERSION = "tabellio-agent-review/v0.1";
 const MAX_FEEDBACK_ITEMS = 5_000;
 const MAX_AGENT_FINDINGS = 1_000;
 const MAX_TEXT_BODY = 64 * 1024;
+const CANONICAL_VALIDATION_MANIFEST = "tabellio.validation.json";
 
 export class ReviewCycleManager {
-  constructor({ store, ledger, validationLedger = null, provider, repositoryId, owner, repo }) {
+  constructor({
+    store,
+    ledger,
+    validationLedger = null,
+    validationManifestPath = CANONICAL_VALIDATION_MANIFEST,
+    validationManifestResolver = null,
+    provider,
+    repositoryId,
+    owner,
+    repo,
+  }) {
     this.store = store;
     this.ledger = ledger;
     this.validationLedger = validationLedger;
+    requiredString(validationManifestPath, "validationManifestPath");
+    if (validationManifestResolver !== null && typeof validationManifestResolver !== "function") {
+      throw new Error("validationManifestResolver must be a function or null.");
+    }
+    this.validationManifestPath = validationManifestPath;
+    this.validationManifestResolver = validationManifestResolver;
     this.provider = provider;
     this.repositoryId = repositoryId;
     this.owner = owner;
@@ -30,6 +47,10 @@ export class ReviewCycleManager {
       this.provider.listReviews({ owner: this.owner, repo: this.repo, number }),
       this.provider.listIssueComments({ owner: this.owner, repo: this.repo, number }),
     ]);
+    const validationManifestPath = this.validationManifestResolver
+      ? await this.validationManifestResolver(changeRequest.source.commit)
+      : this.validationManifestPath;
+    requiredString(validationManifestPath, "validationManifestPath");
     const [reviewComments, providerChecks, localValidation] = await Promise.all([
       this.provider.listReviewComments({ owner: this.owner, repo: this.repo, number, reviews }),
       this.provider.commitStatus({
@@ -38,14 +59,16 @@ export class ReviewCycleManager {
         commit: changeRequest.source.commit,
       }),
       this.validationLedger
-        ? latestValidationResult(this.validationLedger, changeRequest.source.commit, this.repositoryId)
+        ? latestValidationResult(this.validationLedger, changeRequest.source.commit, this.repositoryId, {
+          manifestPath: validationManifestPath,
+        })
         : null,
     ]);
-    const checks = mergeChecks(providerChecks, localValidation);
+    const checks = mergeChecks(providerChecks, localValidation, this.validationLedger !== null);
     const record = await this.#read(number);
     const existing = record.value;
-    if (existing) validateReviewCycle(existing);
-    const priorEvents = eventsWithLegacyReadiness(existing);
+    if (existing) validateReviewCycle(existing, { allowLegacyUnknownMergeabilityReady: true });
+    const priorEvents = existing?.events ?? [];
     const timestamp = now.toISOString();
     const feedback = mergeProviderFeedback(existing?.feedback ?? [], [
       ...reviews.map((value) => reviewFeedback(value, timestamp)),
@@ -271,10 +294,45 @@ export function reviewCycleHasReadyEvidence(cycle, headCommit) {
 }
 
 export function reviewCycleHasReleaseReadiness(cycle, headCommit) {
-  return reviewCycleHasReadyEvidence(cycle, headCommit) && readinessStatus(cycle) === "ready";
+  return reviewCycleHasValidationBoundReadyEvidence(cycle, headCommit)
+    && reviewCycleHasPassedValidation(cycle, headCommit)
+    && readinessStatus(cycle) === "ready";
 }
 
-export function validateReviewCycle(value) {
+export function assertPreMergeReviewReady(cycle) {
+  validateReviewCycle(cycle);
+  requireOpenChangeRequest(cycle);
+  requirePassedExactHeadValidation(cycle);
+  requireReadyStatus(cycle);
+  requireExactHeadReadyEvidence(cycle);
+  return cycle;
+}
+
+function requireOpenChangeRequest(cycle) {
+  if (cycle.changeRequest.state !== "open") {
+    throw new Error(`Review gate requires an open pull request; change request is ${cycle.changeRequest.state}. Ready evidence cannot be created retroactively.`);
+  }
+}
+
+function requirePassedExactHeadValidation(cycle) {
+  if (!reviewCycleHasPassedValidation(cycle, cycle.changeRequest.headCommit)) {
+    throw new Error("Review gate requires passed exact-head Tabellio validation evidence.");
+  }
+}
+
+function requireReadyStatus(cycle) {
+  if (cycle.status !== "ready") {
+    throw new Error(`Review cycle is ${cycle.status}, not ready. Triage feedback, record fixes, publish the exact head, and rerun the gate.`);
+  }
+}
+
+function requireExactHeadReadyEvidence(cycle) {
+  if (!reviewCycleHasValidationBoundReadyEvidence(cycle, cycle.changeRequest.headCommit)) {
+    throw new Error("Review cycle is missing validation-bound exact-head ready evidence.");
+  }
+}
+
+export function validateReviewCycle(value, { allowLegacyUnknownMergeabilityReady = false } = {}) {
   object(value, "review cycle");
   exactKeys(value, ["schemaVersion", "id", "repository", "provider", "changeRequest", "status", "round", "feedback", "fixes", "checks", "events", "createdAt", "updatedAt", "integrity"], "review cycle");
   member(value.schemaVersion, [REVIEW_CYCLE_SCHEMA_VERSION_V2, REVIEW_CYCLE_SCHEMA_VERSION_V3], "schemaVersion");
@@ -321,7 +379,7 @@ export function validateReviewCycle(value) {
   equals(value.integrity.algorithm, "sha256", "integrity.algorithm");
   if (!/^[0-9a-f]{64}$/.test(value.integrity.digest)) throw new Error("integrity.digest must be a SHA-256 digest.");
   if (cycleDigest(value) !== value.integrity.digest) throw new Error("integrity.digest does not match the review cycle.");
-  if (deriveStatus(value) !== value.status) throw new Error("status does not match feedback and checks.");
+  validateStoredStatus(value, allowLegacyUnknownMergeabilityReady);
   return value;
 }
 
@@ -492,16 +550,43 @@ function feedback({
 }
 
 function deriveStatus(cycle) {
-  if (cycle.changeRequest.state === "merged") return "merged";
-  if (cycle.changeRequest.state === "closed") return "closed";
+  const terminal = terminalStatus(cycle);
+  if (terminal) return terminal;
+  if (hasUnknownOpenMergeability(cycle)) return "blocked";
   return readinessStatus(cycle);
+}
+
+function deriveLegacyStatus(cycle) {
+  return terminalStatus(cycle) ?? readinessStatus(cycle);
+}
+
+function terminalStatus(cycle) {
+  return { merged: "merged", closed: "closed" }[cycle.changeRequest.state] ?? null;
+}
+
+function hasUnknownOpenMergeability(cycle) {
+  return cycle.changeRequest.state === "open" && cycle.changeRequest.mergeable === null;
+}
+
+function validateStoredStatus(cycle, allowLegacyUnknownMergeabilityReady) {
+  if (deriveStatus(cycle) === cycle.status) return;
+  const acceptedLegacyStatus = [
+    allowLegacyUnknownMergeabilityReady,
+    cycle.status === "ready",
+    hasUnknownOpenMergeability(cycle),
+    deriveLegacyStatus(cycle) === "ready",
+  ].every(Boolean);
+  if (!acceptedLegacyStatus) throw new Error("status does not match feedback and checks.");
 }
 
 function readinessStatus(cycle) {
   const live = cycle.feedback.filter((item) => item.providerState !== "stale");
   const matchingStatus = [
     { active: cycle.changeRequest.draft, status: "draft" },
-    { active: cycle.changeRequest.mergeable === false, status: "blocked" },
+    {
+      active: cycle.changeRequest.state === "open" && cycle.changeRequest.mergeable === false,
+      status: "blocked",
+    },
     { active: ["error", "failure", "failed"].includes(cycle.checks.state), status: "blocked" },
     { active: live.some((item) => item.disposition === "pending"), status: "needs_triage" },
     {
@@ -519,11 +604,14 @@ function cycleDigest(value) {
   return digestObject(unsigned);
 }
 
-function mergeChecks(providerChecks, localValidation) {
-  if (!localValidation) return providerChecks;
+function mergeChecks(providerChecks, localValidation, validationRequired = false) {
+  if (!localValidation) {
+    if (!validationRequired || ["error", "failure", "failed", "pending", "running"].includes(providerChecks.state)) return providerChecks;
+    return { ...providerChecks, state: "pending" };
+  }
   const localStatus = {
     id: `validation:${localValidation.runId}`,
-    context: `tabellio/${localValidation.suite.id}`,
+    context: `tabellio/${localValidation.suite.id}@${localValidation.suite.manifestPath}`,
     state: localValidation.status === "passed" ? "success" : "failure",
     description: `Tabellio validation ${localValidation.status}.`,
     targetUrl: null,
@@ -536,6 +624,36 @@ function mergeChecks(providerChecks, localValidation) {
   else if (["pending", "running"].includes(providerChecks.state)) state = providerChecks.state;
   else state = "success";
   return { commit: providerChecks.commit, state, total: statuses.length, statuses };
+}
+
+function reviewCycleHasPassedValidation(cycle, headCommit) {
+  return canonicalValidationStatus(cycle, headCommit) !== null;
+}
+
+function reviewCycleHasValidationBoundReadyEvidence(cycle, headCommit) {
+  const validation = canonicalValidationStatus(cycle, headCommit);
+  if (!validation) return false;
+  const bindingId = validationReadyEventId(headCommit, validation.id);
+  if (cycle.events.some((item) => (
+    item.type === "ready"
+    && item.detail === headCommit
+    && item.id === bindingId
+  ))) return true;
+  if (!validation.updatedAt) return false;
+  const validationTime = Date.parse(validation.updatedAt);
+  return cycle.events.some((item) => (
+    item.type === "ready"
+    && item.detail === headCommit
+    && Date.parse(item.at) >= validationTime
+  ));
+}
+
+function canonicalValidationStatus(cycle, headCommit) {
+  if (cycle?.checks?.commit !== headCommit) return null;
+  return cycle.checks.statuses.find((item) => (
+      item.id.startsWith("validation:")
+      && item.state === "success"
+  )) ?? null;
 }
 
 function cycleId(repositoryId, owner, repo, number) {
@@ -565,25 +683,28 @@ function appendSyncedEvent(events, next, existing) {
   const headCommit = existing.changeRequest.headCommit;
   if (!reviewCycleHasReadyEvidence(existing, headCommit)) return appended;
   if (reviewCycleHasReadyEvidence({ events: appended }, headCommit)) return appended;
-  return appendEvent(appended, event("ready", next.actor, next.at, headCommit));
-}
-
-function eventsWithLegacyReadiness(existing) {
-  if (!existing) return [];
-  if (existing.status !== "ready") return existing.events;
-  if (reviewCycleHasReadyEvidence(existing, existing.changeRequest.headCommit)) return existing.events;
-  return appendEvent(existing.events, event("ready", readinessActor(existing.events), existing.updatedAt, existing.changeRequest.headCommit));
+  const preservedReady = existing.events.findLast((item) => item.type === "ready" && item.detail === headCommit);
+  return appendEvent(appended, preservedReady);
 }
 
 function recordReadyEvidence(cycle, status) {
   if (status !== "ready") return;
-  if (reviewCycleHasReadyEvidence(cycle, cycle.changeRequest.headCommit)) return;
-  cycle.events = appendEvent(cycle.events, event("ready", readinessActor(cycle.events), cycle.updatedAt, cycle.changeRequest.headCommit));
+  const validation = canonicalValidationStatus(cycle, cycle.changeRequest.headCommit);
+  if (!validation) return;
+  if (reviewCycleHasValidationBoundReadyEvidence(cycle, cycle.changeRequest.headCommit)) return;
+  const next = event("ready", readinessActor(cycle.events), cycle.updatedAt, cycle.changeRequest.headCommit);
+  next.id = validationReadyEventId(cycle.changeRequest.headCommit, validation.id);
+  cycle.events = appendEvent(cycle.events, next);
 }
 
 function readinessActor(events) {
   const latest = events.at(-1);
   return latest ? latest.actor : "tabellio";
+}
+
+function validationReadyEventId(headCommit, validationId) {
+  const digest = createHash("sha256").update(`${headCommit}\0${validationId}`).digest("hex");
+  return `event-ready-${digest}`;
 }
 
 function validateChangeRequest(value) {

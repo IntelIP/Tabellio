@@ -50,7 +50,7 @@ Run `tabellio-validate` from any trusted worker. The runner checks out the exact
 ```bash
 node scripts/tabellio-validate.mjs run \
   --repo . \
-  --repo-id example/repository \
+  --repo-id github.com/example/repository \
   --commit HEAD \
   --manifest tabellio.validation.json
 ```
@@ -81,6 +81,21 @@ node scripts/tabellio-preflight.mjs --profile release
 ```
 
 Preflight performs read-only checks of Entire enablement and Codex hook-trust state. When trust is missing, open `/hooks` in Codex and approve the four repository hooks. Run `entire doctor` separately only when an operator explicitly intends to diagnose and repair Entire state.
+
+After terminal review and exact-head validation, record durable readiness before merge:
+
+```bash
+node scripts/tabellio-review.mjs gate \
+  --repo . \
+  --repo-id github.com/example/repository \
+  --owner example \
+  --remote-repo repository \
+  --number 42 \
+  --token-file /secure/path/github-token \
+  --actor pre-merge-gate
+```
+
+Do not merge until this command passes. The gate refuses to create readiness evidence after a pull request is merged or closed.
 
 After explicit PR merge, create the exact release plan:
 

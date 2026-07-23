@@ -12,6 +12,7 @@ This is the first publication candidate after v0.2.0. Versions 0.3.0 and 0.4.0 w
 
 - Product-validity and cost-aware validation from the unpublished v0.4.0 milestone.
 - Deterministic release planning and resumable publication from the unpublished v0.3.0 milestone.
+- Fail-closed `tabellio-review gate` for exact-head durable readiness before pull-request merge.
 
 ### Changed
 

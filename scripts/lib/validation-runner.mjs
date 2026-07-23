@@ -272,21 +272,36 @@ function acceptanceResult(acceptance) {
   };
 }
 
-export async function latestValidationResult(ledger, commit, repositoryId = null) {
+export async function latestValidationResult(ledger, commit, repositoryId = null, { manifestPath = null } = {}) {
   oid(commit, "commit");
   if (repositoryId !== null) requiredString(repositoryId, "repositoryId");
+  if (manifestPath !== null) requiredString(manifestPath, "manifestPath");
   const prefix = `commits/${commit}`;
   const listed = await ledger.list(prefix);
   let latest = null;
   for (const path of listed.paths) {
     const record = await ledger.read(path);
     if (!record.value) continue;
-    validateValidationResult(record.value);
-    if (record.value.revision.headCommit !== commit) throw new Error(`Validation result ${path} is stored under the wrong commit.`);
-    if (repositoryId !== null && record.value.repository.id !== repositoryId) continue;
-    if (!latest || Date.parse(record.value.completedAt) > Date.parse(latest.completedAt)) latest = record.value;
+    if (!validationResultMatches(record.value, { commit, repositoryId, manifestPath, path })) continue;
+    latest = newerValidationResult(latest, record.value);
   }
   return latest;
+}
+
+function validationResultMatches(value, { commit, repositoryId, manifestPath, path }) {
+  validateValidationResult(value);
+  if (value.revision.headCommit !== commit) throw new Error(`Validation result ${path} is stored under the wrong commit.`);
+  return optionalMatch(value.repository.id, repositoryId)
+    && optionalMatch(value.suite.manifestPath, manifestPath);
+}
+
+function optionalMatch(actual, expected) {
+  return expected === null || actual === expected;
+}
+
+function newerValidationResult(current, candidate) {
+  if (!current) return candidate;
+  return Date.parse(candidate.completedAt) > Date.parse(current.completedAt) ? candidate : current;
 }
 
 export function validateValidationManifest(value) {

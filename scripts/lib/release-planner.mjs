@@ -68,6 +68,7 @@ export async function planRelease({
     repo,
     number,
     pullRequestHead,
+    manifestPath,
     runnerId,
     now,
   });
@@ -207,12 +208,25 @@ async function resolveGitHubProvider({ githubProvider, apiUrl, token, ghBinary, 
   return new GitHubProvider({ baseUrl: apiUrl, token: resolvedToken });
 }
 
-async function assertMergedReview({ store, validationLedger, provider, repositoryId, owner, repo, number, pullRequestHead, runnerId, now }) {
+async function assertMergedReview({
+  store,
+  validationLedger,
+  provider,
+  repositoryId,
+  owner,
+  repo,
+  number,
+  pullRequestHead,
+  manifestPath,
+  runnerId,
+  now,
+}) {
   const reviewLedger = await GitJsonLedger.open({ repoPath: store.repoPath, ref: "refs/tabellio/reviews" });
   const manager = new ReviewCycleManager({
     store,
     ledger: reviewLedger,
     validationLedger,
+    validationManifestPath: manifestPath,
     provider,
     repositoryId,
     owner,
@@ -222,7 +236,7 @@ async function assertMergedReview({ store, validationLedger, provider, repositor
   if (review.cycle.status !== "merged") throw new Error(`Review cycle ${number} is ${review.cycle.status}, not merged.`);
   contract.equals(review.cycle.changeRequest.headCommit, pullRequestHead, `review cycle ${number} head`);
   if (!reviewCycleHasReleaseReadiness(review.cycle, pullRequestHead)) {
-    throw new Error(`Review cycle ${number} is not release-ready for the merged pull-request head.`);
+    throw new Error(`Review cycle ${number} is not release-ready for the merged pull-request head. Run tabellio-review gate before merge; readiness cannot be backfilled after merge.`);
   }
 }
 
