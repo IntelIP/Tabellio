@@ -12,14 +12,17 @@ import {
 } from "./lib/cli-options.mjs";
 import { GitJsonLedger } from "./lib/git-json-ledger.mjs";
 import { repositoryIdentity } from "./lib/repository-identity.mjs";
-import { ReviewCycleManager } from "./lib/review-cycle.mjs";
+import { reviewCommandRequiresGitHub } from "./lib/review-command-policy.mjs";
+import { assertPreMergeReviewReady, ReviewCycleManager } from "./lib/review-cycle.mjs";
+import { validationManifestAtPullHead } from "./lib/review-manifest.mjs";
 import { GitHubProvider } from "./providers/github-provider.mjs";
 import { NativeGitStore } from "./providers/native-git-store.mjs";
 
-const COMMANDS = new Set(["sync", "status", "triage", "fix", "import"]);
+const COMMANDS = new Set(["sync", "gate", "status", "triage", "fix", "import"]);
 const COMMON_OPTIONS = ["repo", "repoId", "owner", "remoteRepo", "number", "actor", "ledgerRef", "validationLedgerRef"];
 const ALLOWED_OPTIONS = {
   sync: [...COMMON_OPTIONS, "apiUrl", "tokenFile"],
+  gate: [...COMMON_OPTIONS, "apiUrl", "tokenFile"],
   status: COMMON_OPTIONS,
   triage: [...COMMON_OPTIONS, "feedbackId", "disposition", "reason"],
   fix: [...COMMON_OPTIONS, "feedbackIds", "commit", "checkpoint", "summary"],
@@ -27,6 +30,7 @@ const ALLOWED_OPTIONS = {
 };
 const REQUIRED_OPTIONS = {
   sync: [],
+  gate: [],
   status: [],
   triage: ["feedbackId", "disposition", "reason"],
   fix: ["feedbackIds", "commit", "checkpoint", "summary"],
@@ -34,6 +38,7 @@ const REQUIRED_OPTIONS = {
 };
 const COMMAND_HANDLERS = {
   sync: syncReview,
+  gate: gateReview,
   status: reviewStatus,
   triage: triageReview,
   fix: recordReviewFix,
@@ -52,6 +57,11 @@ async function main() {
     store,
     ledger,
     validationLedger,
+    validationManifestResolver: (commit) => validationManifestAtPullHead({
+      store,
+      commit,
+      number: options.number,
+    }),
     provider: await githubClient(options),
     repositoryId,
     owner: options.owner,
@@ -66,9 +76,9 @@ function openLedger(repoPath, ref) {
 }
 
 async function githubClient(options) {
-  if (options.command !== "sync") return null;
+  if (!reviewCommandRequiresGitHub(options.command)) return null;
   const token = await githubToken(options.tokenFile);
-  if (!token) throw new Error("--token-file or GITHUB_TOKEN is required for sync.");
+  if (!token) throw new Error(`--token-file or GITHUB_TOKEN is required for ${options.command}.`);
   return new GitHubProvider({
     baseUrl: options.apiUrl ?? process.env.GITHUB_API_URL,
     token,
@@ -82,6 +92,12 @@ async function githubToken(tokenFile) {
 
 function syncReview(manager, options) {
   return manager.sync({ number: options.number, actor: options.actor });
+}
+
+async function gateReview(manager, options) {
+  const result = await manager.sync({ number: options.number, actor: options.actor });
+  assertPreMergeReviewReady(result.cycle);
+  return result;
 }
 
 function reviewStatus(manager, options) {
@@ -133,7 +149,7 @@ function parseArgs(args) {
 }
 
 function requireCommand(command) {
-  if (!COMMANDS.has(command)) throw new Error("Expected command: sync, status, triage, fix, or import.");
+  if (!COMMANDS.has(command)) throw new Error("Expected command: sync, gate, status, triage, fix, or import.");
 }
 
 function defaultActor(actor) {

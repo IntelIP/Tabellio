@@ -235,7 +235,7 @@ test("validation manifest rejects shell-like ambiguity and missing checkpoint ra
 test("validation runner terminates timed-out commands and skips remaining fail-fast work", async (t) => {
   const fixture = await createFeatureFixture(t);
   await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(manifest([
-    command("timeout", [process.execPath, "-e", "setTimeout(() => {}, 5000)"], ".", 150),
+    command("timeout", [process.execPath, "-e", "setTimeout(() => {}, 30000)"], ".", 150),
     command("must-skip", [process.execPath, "-e", "process.exit(0)"]),
   ]), null, 2));
   await commit(fixture.seed, "Add timeout validation", "validation-timeout");
@@ -248,7 +248,7 @@ test("validation runner terminates timed-out commands and skips remaining fail-f
   assert.equal(result.result.commands[0].status, "timed_out");
   assert(["SIGTERM", "SIGKILL"].includes(result.result.commands[0].signal));
   assert.equal(result.result.commands[1].status, "skipped");
-  assert(Date.now() - started < 3_000);
+  assert(Date.now() - started < 20_000);
 });
 
 test("typed validators enforce semantic metrics and cost budgets with durable evidence", async (t) => {

@@ -259,6 +259,16 @@ test("core runtime and adoption docs do not require GitHub Actions", async () =>
   for (const content of [readme, gettingStarted, writer, packageMetadata]) {
     assert.doesNotMatch(content, /GITHUB_|GitHub Actions|github-actions/);
   }
+  assert.equal(
+    readme.match(/--repo-id github\.com\/owner\/repository/g)?.length,
+    2,
+    "validation and review examples must use the GitHub-qualified repository identity",
+  );
+  assert.equal(
+    gettingStarted.match(/--repo-id github\.com\/example\/repository/g)?.length,
+    2,
+    "getting-started validation and review examples must use one GitHub-qualified repository identity",
+  );
 });
 
 test("stable schema identifiers keep external references and released contracts resolvable", async () => {

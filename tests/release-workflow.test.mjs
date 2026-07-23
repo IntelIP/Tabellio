@@ -13,6 +13,7 @@ import { createReleaseIntent, validateReleaseApproval, validateReleaseIntent } f
 import { planRelease } from "../scripts/lib/release-planner.mjs";
 import { ReleaseExecutor } from "../scripts/lib/release-workflow.mjs";
 import { ReviewCycleManager } from "../scripts/lib/review-cycle.mjs";
+import { ValidationRunner } from "../scripts/lib/validation-runner.mjs";
 import { NativeGitStore } from "../scripts/providers/native-git-store.mjs";
 import { createFixture, identityEnv } from "./helpers/git-fixture.mjs";
 import { platformFixture } from "./helpers/platform-fixture.mjs";
@@ -315,15 +316,18 @@ test("release planning binds merged PR proof after exact validation and terminal
   await writeFile(join(fixture.seed, "package.json"), '{"version":"2.0.0"}\n');
   await writeFile(join(fixture.seed, "CHANGELOG.md"), "## 2.0.0 - 2026-07-15\n");
   await writeFile(join(fixture.seed, notesPath), "Release 2.0.0\n");
-  await writeFile(join(fixture.seed, "tabellio.validation.json"), JSON.stringify({
+  const manifestPath = "custom.validation.json";
+  await writeFile(join(fixture.seed, manifestPath), JSON.stringify({
     schemaVersion: "tabellio-validation/v0.1",
     id: "release-plan-test",
     failFast: true,
     requireEntireCheckpoint: true,
     commands: [{ id: "pass", argv: [process.execPath, "-e", "process.exit(0)"], cwd: ".", timeoutMs: 10_000, required: true }],
   }));
-  await writeFile(join(fixture.seed, "tabellio.platform.json"), JSON.stringify(platformFixture()));
-  await runGit({ args: ["add", "package.json", "CHANGELOG.md", "tabellio.validation.json", "tabellio.platform.json", notesPath], cwd: fixture.seed });
+  const platform = platformFixture();
+  platform.validation.manifest = manifestPath;
+  await writeFile(join(fixture.seed, "tabellio.platform.json"), JSON.stringify(platform));
+  await runGit({ args: ["add", "package.json", "CHANGELOG.md", manifestPath, "tabellio.platform.json", notesPath], cwd: fixture.seed });
   await runGit({
     args: ["commit", "-m", "Prepare release", "-m", "Entire-Checkpoint: abcdef123456"],
     cwd: fixture.seed,
@@ -345,15 +349,28 @@ test("release planning binds merged PR proof after exact validation and terminal
   await runGit({ args: ["update-ref", "refs/heads/entire/checkpoints/v1", pullRequestHead], cwd: fixture.seed });
   const provider = mergedProvider({ head: pullRequestHead, base: parent });
   const reviewLedger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/reviews" });
+  const validationLedger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
+  const preMergeValidation = await new ValidationRunner({ store, ledger: validationLedger }).run({
+    repositoryId: "github.com/example/repository",
+    commit: pullRequestHead,
+    base: parent,
+    manifestPath,
+    runnerId: "pre-merge-test",
+    now,
+  });
+  assert.equal(preMergeValidation.result.status, "passed");
+  const reviewNow = new Date(Date.parse(preMergeValidation.result.completedAt) + 1_000);
   const readyManager = new ReviewCycleManager({
     store,
     ledger: reviewLedger,
+    validationLedger,
+    validationManifestPath: manifestPath,
     provider: readyProvider({ head: pullRequestHead, base: parent }),
     repositoryId: "github.com/example/repository",
     owner: "example",
     repo: "repository",
   });
-  assert.equal((await readyManager.sync({ number: 9, actor: "test", now })).cycle.status, "ready");
+  assert.equal((await readyManager.sync({ number: 9, actor: "test", now: reviewNow })).cycle.status, "ready");
   const commandRunner = async ({ args }) => {
     if (args[0] === "pr" && args[1] === "view") {
       return { stdout: JSON.stringify({ state: "MERGED", headRefOid: pullRequestHead, mergeCommit: { oid: head } }), stderr: "", exitCode: 0, signal: null };
@@ -375,7 +392,7 @@ test("release planning binds merged PR proof after exact validation and terminal
     manifestPath: "alternate.validation.json",
     preflightRunner: async () => ({ status: "ready", checks: [] }),
     now,
-  }), /manifestPath must be "tabellio.validation.json"/);
+  }), /manifestPath must be "custom.validation.json"/);
   await assert.rejects(planRelease({
     repoPath: fixture.seed,
     owner: "example",
@@ -383,6 +400,7 @@ test("release planning binds merged PR proof after exact validation and terminal
     number: 9,
     version: "2.0.0",
     notesPath,
+    manifestPath,
     preflightRunner: async () => ({ status: "ready", checks: [] }),
     remoteRepositoryReader,
     now,
@@ -404,6 +422,7 @@ test("release planning binds merged PR proof after exact validation and terminal
     number: 9,
     version: "2.0.0",
     notesPath,
+    manifestPath,
     token: "test-token",
     commandRunner,
     preflightRunner: async () => ({ status: "ready", checks: [] }),
@@ -411,7 +430,7 @@ test("release planning binds merged PR proof after exact validation and terminal
     remoteRepositoryReader,
     now,
   }), /review cycle 9 head/);
-  assert.equal((await readyManager.sync({ number: 9, actor: "test", now })).cycle.status, "ready");
+  assert.equal((await readyManager.sync({ number: 9, actor: "test", now: reviewNow })).cycle.status, "ready");
   const intent = await planRelease({
     repoPath: fixture.seed,
     repositoryId: "github.com/example/repository",
@@ -420,6 +439,7 @@ test("release planning binds merged PR proof after exact validation and terminal
     number: 9,
     version: "2.0.0",
     notesPath,
+    manifestPath,
     token: "test-token",
     commandRunner,
     preflightRunner: async () => ({ status: "ready", checks: [] }),

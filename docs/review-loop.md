@@ -42,6 +42,20 @@ node scripts/tabellio-review.mjs sync \
 
 Sync imports GitHub reviews, inline review comments, issue comments, commit statuses, check runs, and the newest Tabellio validation for the PR head. `GITHUB_TOKEN` may replace `--token-file`; `GITHUB_API_URL` or `--api-url` may target GitHub Enterprise Server. Missing GitHub items are retained as stale evidence rather than silently deleted. A PR with no validation remains `validating`.
 
+Before merge, run the fail-closed gate:
+
+```bash
+node scripts/tabellio-review.mjs gate \
+  --repo . \
+  --owner example \
+  --remote-repo project \
+  --number 7 \
+  --token-file /secure/path/github-token \
+  --actor pre-merge-gate
+```
+
+The gate performs a fresh sync and exits non-zero unless the pull request is still open, every feedback item is handled, fixes are present in the remote head, checks and exact-head validation pass, and the durable cycle records a `ready` event for that head. Run it after the terminal review and immediately before requesting merge approval. It refuses merged or closed pull requests because readiness evidence cannot be created retroactively.
+
 ## Import A Codex Review
 
 Codex and other agents emit `tabellio-agent-review/v0.1`:
@@ -77,7 +91,7 @@ node scripts/tabellio-review.mjs fix \
   --actor fix-agent
 ```
 
-A fix must descend from the last synchronized PR head. Its commit range must contain exactly one matching `Entire-Checkpoint` trailer. The cycle stays `update_required` until a later GitHub sync proves the fix is contained in the remote PR head.
+A fix must descend from the last synchronized PR head. Its commit range must contain exactly one matching `Entire-Checkpoint` trailer. The cycle stays `update_required` until a later GitHub sync proves the fix is contained in the remote PR head. Triage review requests and clean terminal-review messages as informational; classify actual findings as actionable and bind their repair commit before running the gate.
 
 git-spice restacks rewrite commit IDs. Tabellio retains `originalCommit` and remaps the active fix commit by its unique Entire checkpoint after the rewritten branch is pushed. Ambiguous checkpoint matches stay unpublished and cannot become ready.
 

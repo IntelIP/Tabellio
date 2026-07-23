@@ -108,7 +108,7 @@ Configure Entire's supported `strategy_options.checkpoint_remote` in `.entire/se
 Use `gate` in CI. It persists the same exact-head result but exits non-zero unless the final decision is `passed`:
 
 ```bash
-tabellio-validate gate --repo . --repo-id owner/repository --base main --commit HEAD --manifest tabellio.validation.json
+tabellio-validate gate --repo . --repo-id github.com/owner/repository --base main --commit HEAD --manifest tabellio.validation.json
 ```
 
 Validation worktrees and isolated home directories use private system-temporary sessions. `--workspace-root /absolute/external/path` may select another external parent; repository-internal and `.git/**` paths are rejected.
@@ -123,6 +123,21 @@ node scripts/tabellio-preflight.mjs --profile release
 ```
 
 Hook trust failures identify the exact Codex `/hooks` action required. Release profile additionally requires clean `main` equal to `origin/main`.
+
+Before merging a release-capable pull request, synchronize the durable review cycle and require exact-head readiness:
+
+```bash
+tabellio-review gate \
+  --repo . \
+  --repo-id github.com/owner/repository \
+  --owner owner \
+  --remote-repo repository \
+  --number 42 \
+  --token-file /secure/path/github-token \
+  --actor pre-merge-gate
+```
+
+The gate exits non-zero for untriaged feedback, unpublished fixes, failed or pending checks, missing exact-head validation, or a pull request that is already merged or closed. Merge approval remains a separate human action.
 
 Validate the bundled fixture:
 
