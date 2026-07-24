@@ -353,8 +353,18 @@ function hasEveryRequiredSourceSystem(sources, requiredSystems) {
 }
 
 function metricSourceAvailabilityMatches(metricId, metric, sources) {
-  const requiresAvailableSources = metric.status === "measured" && !AVAILABILITY_METRICS.has(metricId);
-  return !requiresAvailableSources || sources.every((source) => source?.status === "available");
+  return AVAILABILITY_METRICS.has(metricId)
+    ? availabilityMetricMatchesSources(metric, sources)
+    : metric.status !== "measured" || sources.every((source) => source?.status === "available");
+}
+
+function availabilityMetricMatchesSources(metric, sources) {
+  const availableCount = sources.filter((source) => source?.status === "available").length;
+  return [
+    metric.status === "measured",
+    metric.numerator === availableCount,
+    metric.denominator === sources.length,
+  ].every(Boolean);
 }
 
 export function renderAnalyticsReport(dataset) {
@@ -531,7 +541,8 @@ async function collectRepository({ id, path, providerSnapshot, observedAt, since
     validate: reviewRecordValidator,
   });
   const entire = await collectEntireMetadata(repositoryPath, { id: `${id}:entire`, observedAt });
-  const provider = await collectProviderSnapshot({ id, canonicalRepositoryId, providerSnapshot, observedAt });
+  const providerSnapshotResult = await collectProviderSnapshot({ id, canonicalRepositoryId, providerSnapshot, observedAt });
+  const provider = reconcileProviderChanges(providerSnapshotResult, validation.values);
   const sources = [gitSource, validation.source, review.source, entire.source, ...provider.sources];
   const metrics = buildRepositoryMetrics({
     commits,
@@ -668,6 +679,26 @@ function exactCiComparison(change, validations) {
   }];
 }
 
+function reconcileProviderChanges(provider, validations) {
+  const actionsAvailable = provider.sources[2].status === "available";
+  return {
+    ...provider,
+    changes: provider.changes.map((change) => ({
+      ...change,
+      validationStatus: exactValidationStatus(change, validations),
+      hostedStatus: actionsAvailable ? change.hostedStatus : "unavailable",
+    })),
+  };
+}
+
+function exactValidationStatus(change, validations) {
+  const matches = validations.filter((validation) =>
+    validation?.revision?.headCommit === change.headCommit
+      && isComparableStatus(validation.status)
+  );
+  return matches.length === 1 ? matches[0].status : "unavailable";
+}
+
 function isComparableStatus(value) {
   return ["passed", "failed", "blocked"].includes(value);
 }
@@ -713,11 +744,26 @@ function buildProviderResult({ id, snapshot }) {
   const sources = ["plane", "github", "github-actions"].map((system) =>
     buildProviderSource({ id, system, snapshot })
   );
+  const available = providerRequiredSourcesAvailable(sources);
+  const githubAvailable = sources[1].status === "available";
+  const planeAvailable = sources[0].status === "available";
   return {
-    available: providerRequiredSourcesAvailable(sources),
+    available,
     reason: providerMissingReason(sources),
-    changes: snapshot.deliveryChanges,
+    changes: githubAvailable
+      ? snapshot.deliveryChanges.map((change) => planeAvailable ? change : redactPlaneEvidence(change))
+      : [],
     sources,
+  };
+}
+
+function redactPlaneEvidence(change) {
+  return {
+    ...change,
+    linkBasis: "unlinked",
+    linkEvidence: null,
+    planeStoryId: null,
+    storyCreatedAt: null,
   };
 }
 
@@ -779,7 +825,7 @@ function providerFailure({ id, observedAt, reason, status, sourceVersion = null 
 
 function validateProviderSnapshot(snapshot, canonicalRepositoryId, observedAt) {
   const sourceErrors = ["plane", "github", "github-actions"].flatMap((system) =>
-    validateProviderSource(system, snapshot?.sources?.[system], observedAt)
+    validateProviderSource(system, snapshot?.sources?.[system], snapshot?.capturedAt)
   );
   const changeErrors = asArray(snapshot?.deliveryChanges).flatMap((change) =>
     validateDeliveryChange(change, snapshot?.capturedAt)
@@ -1022,7 +1068,7 @@ async function collectEntireMetadata(repositoryPath, { id, observedAt }) {
     });
     if (exists.exitCode !== 0) continue;
     const version = await git(repositoryPath, ["rev-parse", ref]);
-    const names = (await git(repositoryPath, ["ls-tree", "-r", "--name-only", ref]))
+    const names = (await git(repositoryPath, ["ls-tree", "-r", "--name-only", version]))
       .split("\n")
       .filter((name) => /^[^/]+\/[^/]+\/metadata\.json$/.test(name))
       .sort();

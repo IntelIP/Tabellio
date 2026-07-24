@@ -72,6 +72,7 @@ test("analytics collection is deterministic, provenance-bound, and preserves unk
   assert.equal(first.repositories[0].metrics.cycleTimeHours.value, 24);
   assert.equal(first.repositories[0].metrics.ciDisagreementRate.value, 0);
   assert.equal(first.repositories[0].metrics.releaseLagHours.value, 24);
+  assert.equal(first.repositories[0].deliveryChanges[0].validationStatus, "passed");
   assert(!JSON.stringify(first).includes(fixture.repo));
   assert(!JSON.stringify(first).includes("private transcript"));
   assert.match(renderAnalyticsReport(first), /Missing Evidence/);
@@ -102,6 +103,21 @@ test("provider source provenance retains capture time and digest identity", asyn
   assert.equal(firstPlane.observedAt, OBSERVED_AT);
   assert.equal(secondPlane.observedAt, document.capturedAt);
   assert.notEqual(firstPlane.contentDigest, secondPlane.contentDigest);
+});
+
+test("provider versions cannot postdate their snapshot capture", async (t) => {
+  const fixture = await createAnalyticsFixture();
+  const providerSnapshot = join(fixture.root, "provider-future-version.json");
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const document = providerSnapshotDocument(fixture.head);
+  document.capturedAt = "2026-07-23T18:00:00.000Z";
+  document.sources.plane.version = "2026-07-23T19:00:00.000Z";
+  await writeFile(providerSnapshot, JSON.stringify(document));
+
+  const repository = await collectProviderRepository(fixture, providerSnapshot, "provider-future-version");
+
+  assert.equal(repository.metrics.deliveryChangeCount.status, "unavailable");
+  assert.equal(repository.deliveryChanges.length, 0);
 });
 
 test("commit count traverses non-monotonic commit dates", async (t) => {
@@ -370,6 +386,18 @@ test("dataset validation enforces window ordering and metric semantics", async (
   resignDataset(missingRequiredSystem);
   assert.throws(
     () => validateAnalyticsDataset(missingRequiredSystem),
+    /sources do not support the metric state or definition/,
+  );
+
+  const falseCompleteness = structuredClone(validForTampering);
+  falseCompleteness.repositories[0].metrics.evidenceCompleteness = {
+    ...falseCompleteness.repositories[0].metrics.evidenceCompleteness,
+    value: 1,
+    numerator: 7,
+  };
+  resignDataset(falseCompleteness);
+  assert.throws(
+    () => validateAnalyticsDataset(falseCompleteness),
     /sources do not support the metric state or definition/,
   );
 });
@@ -666,6 +694,34 @@ test("provider-derived metrics require their declared evidence sources", async (
   assert.deepEqual([metrics.cycleTimeHours.status, metrics.cycleTimeHours.value], ["unavailable", null]);
   assert.deepEqual([metrics.ciDisagreementRate.status, metrics.ciDisagreementRate.value], ["unavailable", null]);
   assert.equal(metrics.releaseLagHours.status, "measured");
+});
+
+test("partial provider sources cannot export unsupported evidence", async (t) => {
+  const fixture = await createAnalyticsFixture();
+  const providerSnapshot = join(fixture.root, "provider-partial.json");
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const missingPlane = providerSnapshotDocument(fixture.head);
+  missingPlane.sources.plane = { status: "unavailable", reason: "Plane capture unavailable." };
+  await writeFile(providerSnapshot, JSON.stringify(missingPlane));
+
+  const withoutPlane = await collectProviderRepository(fixture, providerSnapshot, "provider-without-plane");
+
+  assert.equal(withoutPlane.deliveryChanges.length, 1);
+  assert.equal(withoutPlane.deliveryChanges[0].planeStoryId, null);
+  assert.equal(withoutPlane.deliveryChanges[0].storyCreatedAt, null);
+  assert.equal(withoutPlane.deliveryChanges[0].linkBasis, "unlinked");
+  assert.equal(withoutPlane.metrics.deliveryChangeCount.status, "unavailable");
+
+  const missingActions = providerSnapshotDocument(fixture.head);
+  missingActions.sources["github-actions"] = { status: "unavailable", reason: "Actions capture unavailable." };
+  missingActions.deliveryChanges[0].validationStatus = "failed";
+  missingActions.deliveryChanges[0].hostedStatus = "passed";
+  await writeFile(providerSnapshot, JSON.stringify(missingActions));
+
+  const withoutActions = await collectProviderRepository(fixture, providerSnapshot, "provider-without-actions");
+
+  assert.equal(withoutActions.deliveryChanges[0].validationStatus, "passed");
+  assert.equal(withoutActions.deliveryChanges[0].hostedStatus, "unavailable");
 });
 
 test("malformed validation evidence blocks its metrics without blocking local Git", async (t) => {
