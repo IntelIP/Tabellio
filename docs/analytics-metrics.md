@@ -58,6 +58,8 @@ Snapshots contain only:
 
 Manual reconciliation requires a bounded evidence statement. Missing Plane, GitHub, or Actions snapshots remain unavailable; the collector never invents links from similar titles.
 
+Executable validation requires the complete canonical metric-definition set and every required repository metric. Provider-derived timing and CI comparison metrics remain unavailable unless each declared source is available. Malformed provider records block provider metrics without aborting local Git collection, and provider read failures use bounded reasons that exclude local paths.
+
 ## Storage Decision
 
 Sprint 1 uses canonical JSON as the portable rebuild artifact. This keeps Node 20 core commands dependency-free and makes the baseline reviewable without a database runtime.
