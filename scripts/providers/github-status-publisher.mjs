@@ -48,7 +48,7 @@ export class GitHubStatusPublisher {
         body: redact(source, this.#token),
       });
     }
-    return normalizePublishedStatus(parseJson(source, url));
+    return normalizePublishedStatus(parseJson(source, url), commit);
   }
 }
 
@@ -90,11 +90,11 @@ async function fetchWithTimeout({ fetchImpl, url, token, timeoutMs, body }) {
   }
 }
 
-function normalizePublishedStatus(value) {
+function normalizePublishedStatus(value, commit) {
   requiredObject(value, "status");
   return {
     id: String(requiredInteger(value.id, "status.id")),
-    commit: requiredOid(value.sha, "status.sha"),
+    commit: requiredOid(commit, "commit"),
     state: requiredEnum(value.state, ["error", "failure", "pending", "success"], "status.state"),
     context: requiredString(value.context, "status.context"),
     description: optionalString(value.description),

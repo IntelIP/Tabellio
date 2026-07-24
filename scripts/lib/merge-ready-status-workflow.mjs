@@ -31,14 +31,15 @@ export async function planMergeReadyStatus({
   if (identity.toLowerCase() !== repository.identity.toLowerCase()) {
     throw new Error(`Repository identity mismatch: expected ${repository.identity}, found ${identity}.`);
   }
+  const canonicalIdentity = repository.identity;
   const headCommit = await store.resolveRef(commit);
   const ledger = await GitJsonLedger.open({ repoPath: store.repoPath, ref: ledgerRef });
-  const validation = await latestValidationResult(ledger, headCommit, identity, { manifestPath });
+  const validation = await latestValidationResult(ledger, headCommit, canonicalIdentity, { manifestPath });
   if (validation === null) {
     throw new Error(`No exact-head validation exists for ${headCommit} and ${manifestPath}.`);
   }
   return createMergeReadyStatusIntent({
-    repository: { id: identity, owner: repository.owner, name: repository.name },
+    repository: { id: canonicalIdentity, owner: repository.owner, name: repository.name },
     commit: headCommit,
     validation,
     targetUrl,

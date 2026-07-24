@@ -296,7 +296,11 @@ function validationResultMatches(value, { commit, repositoryId, manifestPath, pa
 }
 
 function optionalMatch(actual, expected) {
-  return expected === null || actual === expected;
+  return expected === null || canonicalRepositoryId(actual) === canonicalRepositoryId(expected);
+}
+
+function canonicalRepositoryId(value) {
+  return value.toLowerCase().startsWith("github.com/") ? value.toLowerCase() : value;
 }
 
 function newerValidationResult(current, candidate) {

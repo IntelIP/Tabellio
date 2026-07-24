@@ -113,7 +113,6 @@ test("GitHub status publisher posts only the approved commit status fields", asy
     });
     return new Response(JSON.stringify({
       id: 71,
-      sha: "b".repeat(40),
       state: "success",
       context: "Tabellio / merge-ready",
       description: "Exact-head Tabellio validation passed.",
@@ -139,6 +138,7 @@ test("GitHub status publisher posts only the approved commit status fields", asy
   });
 
   assert.equal(result.id, "71");
+  assert.equal(result.commit, "b".repeat(40));
   assert.deepEqual(requests, [{
     method: "POST",
     url: `https://127.0.0.1:9443/repos/IntelIP/Tabellio/statuses/${"b".repeat(40)}`,
@@ -214,7 +214,6 @@ test("GitHub status publisher rejects unsafe endpoints and redacts token failure
     fetchImpl: async () => new Response(JSON.stringify({
       id: 72,
       state: "success",
-      context: "Tabellio / merge-ready",
     }), { status: 201, headers: { "content-type": "application/json" } }),
   });
   await assert.rejects(
@@ -226,7 +225,7 @@ test("GitHub status publisher rejects unsafe endpoints and redacts token failure
       context: "Tabellio / merge-ready",
       description: "Exact-head Tabellio validation passed.",
     }),
-    /status.sha must be a Git object ID/,
+    /status.context must be a non-empty string/,
   );
 });
 
