@@ -5,7 +5,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { runGit } from "./git-process.mjs";
 import { canonicalJson } from "./context-packet.mjs";
 import { parseGitHubRepositoryRemote } from "./github-repository.mjs";
-import { validateJsonSchema } from "./json-schema-validator.mjs";
+import { isJsonDateTime, validateJsonSchema } from "./json-schema-validator.mjs";
 import { normalizeRepositoryRemote } from "./repository-identity.mjs";
 import { validateReviewCycle } from "./review-cycle.mjs";
 import { validateValidationResult } from "./validation-runner.mjs";
@@ -294,7 +294,7 @@ export function renderAnalyticsReport(dataset) {
     "",
     ...dataset.repositories.flatMap(renderRepositoryProvenance),
   ];
-  return `${lines.join("\n")}\n`;
+  return `${lines.join("\n").trimEnd()}\n`;
 }
 
 function renderRepositoryRow(repository) {
@@ -358,7 +358,7 @@ async function collectRepository({ id, path, providerSnapshot, observedAt, since
     git(repositoryPath, ["branch", "--show-current"]),
     git(repositoryPath, ["remote", "get-url", "origin"], [0, 2]),
     git(repositoryPath, ["status", "--porcelain=v1"]),
-    git(repositoryPath, ["rev-list", "--count", `--since=${since}`, `--until=${until}`, "HEAD"]),
+    git(repositoryPath, ["rev-list", "--count", `--since-as-filter=${since}`, `--until=${until}`, "HEAD"]),
   ]);
   const githubRepository = parseGitHubRepositoryRemote(remote);
   const canonicalRepositoryId = githubRepository?.fullName
@@ -513,12 +513,12 @@ function collectLoadedProviderSnapshot({ id, canonicalRepositoryId, observedAt, 
       reason: `Provider snapshot is invalid: ${errors.join(" ")}`,
     });
   }
-  return buildProviderResult({ id, observedAt, snapshot });
+  return buildProviderResult({ id, snapshot });
 }
 
-function buildProviderResult({ id, observedAt, snapshot }) {
+function buildProviderResult({ id, snapshot }) {
   const sources = ["plane", "github", "github-actions"].map((system) =>
-    buildProviderSource({ id, system, observedAt, snapshot })
+    buildProviderSource({ id, system, snapshot })
   );
   return {
     available: providerRequiredSourcesAvailable(sources),
@@ -545,17 +545,23 @@ async function readProviderSnapshot(path) {
   }
 }
 
-function buildProviderSource({ id, system, observedAt, snapshot }) {
+function buildProviderSource({ id, system, snapshot }) {
   const source = snapshot.sources[system];
   if (source.status !== "available") {
-    return unavailableSource({ id: `${id}:${system}`, system, observedAt, reason: source.reason });
+    return unavailableSource({
+      id: `${id}:${system}`,
+      system,
+      observedAt: snapshot.capturedAt,
+      reason: source.reason,
+    });
   }
   return availableSource({
     id: `${id}:${system}`,
     system,
-    observedAt,
+    observedAt: snapshot.capturedAt,
     sourceVersion: source.version,
     content: JSON.stringify({
+      capturedAt: snapshot.capturedAt,
       source,
       changes: snapshot.deliveryChanges.map((change) => providerProjection(change, system)),
     }),
@@ -859,7 +865,7 @@ function sha256(value) {
 }
 
 function isDateTime(value) {
-  return typeof value === "string" && Number.isFinite(Date.parse(value)) && /T/.test(value);
+  return isJsonDateTime(value);
 }
 
 function parseOptionalDate(value) {

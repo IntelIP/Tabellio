@@ -86,7 +86,7 @@ function typeError(value, schema, path) {
     : null;
 }
 
-function validateString(value, schema, path) {
+function validateString(value, schema, _rootSchema, path) {
   return [
     minLengthError(value, schema, path),
     maxLengthError(value, schema, path),
@@ -108,10 +108,10 @@ function patternError(value, schema, path) {
 }
 
 function formatError(value, schema, path) {
-  return violation(schema.format === "date-time" && !isDateTime(value), `${path} must be an ISO date-time.`);
+  return violation(schema.format === "date-time" && !isJsonDateTime(value), `${path} must be an ISO date-time.`);
 }
 
-function validateNumber(value, schema, path) {
+function validateNumber(value, schema, _rootSchema, path) {
   return [
     violation(schema.minimum !== undefined && value < schema.minimum, `${path} must be at least ${schema.minimum}.`),
     violation(schema.maximum !== undefined && value > schema.maximum, `${path} must be at most ${schema.maximum}.`),
@@ -160,10 +160,34 @@ function violation(condition, message) {
   return condition ? message : null;
 }
 
-function isDateTime(value) {
-  return typeof value === "string"
-    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
-    && Number.isFinite(Date.parse(value));
+const DATE_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:Z|[+-]\d{2}:\d{2})$/;
+
+export function isJsonDateTime(value) {
+  if (typeof value !== "string") return false;
+  const match = DATE_TIME_PATTERN.exec(value);
+  return Boolean(match) && Number.isFinite(Date.parse(value)) && hasExactCalendarComponents(match);
+}
+
+function hasExactCalendarComponents(match) {
+  const [, year, month, day, hour, minute, second, fraction = ""] = match;
+  const expected = [year, month, day, hour, minute, second].map(Number);
+  if (expected[3] > 23 || expected[4] > 59 || expected[5] > 59) return false;
+  const instant = new Date(0);
+  instant.setUTCHours(expected[3], expected[4], expected[5], milliseconds(fraction));
+  instant.setUTCFullYear(expected[0], expected[1] - 1, expected[2]);
+  const actual = [
+    instant.getUTCFullYear(),
+    instant.getUTCMonth() + 1,
+    instant.getUTCDate(),
+    instant.getUTCHours(),
+    instant.getUTCMinutes(),
+    instant.getUTCSeconds(),
+  ];
+  return actual.every((part, index) => part === expected[index]);
+}
+
+function milliseconds(fraction) {
+  return Number(fraction.padEnd(3, "0").slice(0, 3));
 }
 
 export function validateJsonSchema(value, schema) {

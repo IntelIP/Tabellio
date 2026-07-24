@@ -78,6 +78,42 @@ test("analytics collection is deterministic, provenance-bound, and preserves unk
   assert.match(renderAnalyticsReport(first), /taskToPrTraceability/);
 });
 
+test("provider source provenance retains capture time and digest identity", async (t) => {
+  const fixture = await createAnalyticsFixture();
+  const providerSnapshot = join(fixture.root, "provider-capture.json");
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const document = providerSnapshotDocument(fixture.head);
+  await writeFile(providerSnapshot, JSON.stringify(document));
+
+  const input = {
+    id: "provider-capture-baseline",
+    repositories: [{ id: "fixture", path: fixture.repo, providerSnapshot }],
+    observedAt: OBSERVED_AT,
+    since: SINCE,
+    until: UNTIL,
+  };
+  const first = await collectAnalyticsDataset(input);
+  document.capturedAt = "2026-07-23T19:00:00.000Z";
+  await writeFile(providerSnapshot, JSON.stringify(document));
+  const second = await collectAnalyticsDataset(input);
+  const firstPlane = first.repositories[0].sources.find((source) => source.system === "plane");
+  const secondPlane = second.repositories[0].sources.find((source) => source.system === "plane");
+
+  assert.equal(firstPlane.observedAt, OBSERVED_AT);
+  assert.equal(secondPlane.observedAt, document.capturedAt);
+  assert.notEqual(firstPlane.contentDigest, secondPlane.contentDigest);
+});
+
+test("commit count traverses non-monotonic commit dates", async (t) => {
+  const { repo } = await createEmptyAnalyticsRepository(t, "tabellio-analytics-commit-window-");
+  await commitFixtureFile(repo, "older-middle.txt", "older middle\n", "2026-06-01T00:00:00Z");
+  await commitFixtureFile(repo, "new-head.txt", "new head\n", "2026-07-20T00:00:00Z");
+
+  const repository = await collectSingleRepository(repo, "commit-window");
+
+  assert.equal(repository.metrics.commitCount.value, 2);
+});
+
 test("absent evidence sources remain unavailable instead of becoming zero", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "tabellio-analytics-missing-"));
   const repo = join(root, "repo");
@@ -197,6 +233,20 @@ test("dataset validation enforces window ordering and metric semantics", async (
   assert.throws(
     () => validateAnalyticsDataset(invalidMetric),
     /metric value, unit, or ratio fields violate its definition/,
+  );
+
+  const invalidDate = await collectAnalyticsDataset({
+    id: "date-baseline",
+    repositories: [{ id: "fixture", path: fixture.repo }],
+    observedAt: OBSERVED_AT,
+    since: SINCE,
+    until: UNTIL,
+  });
+  invalidDate.observedAt = "2026-02-30T00:00:00Z";
+  resignDataset(invalidDate);
+  assert.throws(
+    () => validateAnalyticsDataset(invalidDate),
+    /\$\.observedAt must be an ISO date-time/,
   );
 });
 
@@ -528,6 +578,20 @@ async function initializeRepository(repo) {
     cwd: repo,
     args: ["commit", "-m", "fixture"],
     env: { ...identityEnv(), GIT_AUTHOR_DATE: "2026-07-10T12:00:00Z", GIT_COMMITTER_DATE: "2026-07-10T12:00:00Z" },
+  });
+}
+
+async function commitFixtureFile(repo, name, content, committedAt) {
+  await writeFile(join(repo, name), content);
+  await runGit({ cwd: repo, args: ["add", name] });
+  await runGit({
+    cwd: repo,
+    args: ["commit", "-m", name],
+    env: {
+      ...identityEnv(),
+      GIT_AUTHOR_DATE: committedAt,
+      GIT_COMMITTER_DATE: committedAt,
+    },
   });
 }
 
