@@ -19,9 +19,12 @@ const PROFILE_VALIDATORS = Object.freeze({
 
 try {
   const options = parseOptionPairs(process.argv.slice(2), "analytics validator");
-  assertAllowedOptions(options, ["profile", "validatorId", "dataset", "report", "out"]);
+  assertAllowedOptions(options, ["profile", "validatorId", "dataset", "report", "out", "exitMode"]);
   requireOptions(options, ["profile", "validatorId", "dataset", "report", "out"], "analytics validator");
   if (!PROFILES.includes(options.profile)) throw new Error(`Unsupported analytics validator profile: ${options.profile}.`);
+  if (options.exitMode !== undefined && options.exitMode !== "evidence") {
+    throw new Error(`Unsupported analytics validator exit mode: ${options.exitMode}.`);
+  }
 
   const datasetPath = resolve(options.dataset);
   const reportPath = resolve(options.report);
@@ -47,6 +50,7 @@ try {
   await mkdir(dirname(out), { recursive: true });
   await writeFile(out, `${JSON.stringify(evidence, null, 2)}\n`);
   console.log(JSON.stringify({ ok: evidence.status === "passed", profile: options.profile, out, status: evidence.status }));
+  if (evidence.status !== "passed" && options.exitMode !== "evidence") process.exitCode = 1;
 } catch (error) {
   reportCliError(error);
 }

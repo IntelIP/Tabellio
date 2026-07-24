@@ -985,7 +985,7 @@ test("analytics JSON schema remains loadable and identifies the executable contr
   assert.equal(schema.additionalProperties, false);
 });
 
-test("analytics validator reports semantic failures through evidence with a successful command exit", async (t) => {
+test("analytics validator separates direct failure exits from runner evidence evaluation", async (t) => {
   const fixture = await createAnalyticsFixture();
   const root = await mkdtemp(join(tmpdir(), "tabellio-analytics-validator-"));
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
@@ -1000,6 +1000,7 @@ test("analytics validator reports semantic failures through evidence with a succ
   const datasetPath = join(root, "dataset.json");
   const reportPath = join(root, "report.md");
   const evidencePath = join(root, "evidence.json");
+  const directEvidencePath = join(root, "direct-evidence.json");
   await writeFile(datasetPath, `${JSON.stringify(dataset, null, 2)}\n`);
   await writeFile(reportPath, renderAnalyticsReport(dataset));
 
@@ -1010,6 +1011,7 @@ test("analytics validator reports semantic failures through evidence with a succ
     "--dataset", datasetPath,
     "--report", reportPath,
     "--out", evidencePath,
+    "--exit-mode", "evidence",
   ], { encoding: "utf8" });
   const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
 
@@ -1017,6 +1019,19 @@ test("analytics validator reports semantic failures through evidence with a succ
   assert.equal(JSON.parse(result.stdout).ok, false);
   assert.equal(evidence.status, "failed");
   assert.equal(evidence.metrics.find((metric) => metric.name === "analytics_semantic_pass").value, 0);
+
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      fileURLToPath(new URL("../scripts/tabellio-analytics-validator.mjs", import.meta.url)),
+      "--profile", "semantic",
+      "--validator-id", "analytics-semantic-direct-test",
+      "--dataset", datasetPath,
+      "--report", reportPath,
+      "--out", directEvidencePath,
+    ], { encoding: "utf8" }),
+    (error) => error.code === 1,
+  );
+  assert.equal(JSON.parse(await readFile(directEvidencePath, "utf8")).status, "failed");
 });
 
 async function createAnalyticsFixture() {
