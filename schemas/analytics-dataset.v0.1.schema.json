@@ -88,7 +88,7 @@
       "additionalProperties": false,
       "required": ["status", "value", "unit", "sourceIds", "reason", "numerator", "denominator"],
       "properties": {
-        "status": { "enum": ["measured", "unavailable", "not_applicable"] },
+        "status": { "enum": ["measured", "unavailable"] },
         "value": { "type": ["number", "boolean", "string", "null"] },
         "unit": { "type": "string", "minLength": 1 },
         "sourceIds": {

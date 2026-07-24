@@ -128,15 +128,21 @@ test("unsafe provider versions are blocked before portable export", async (t) =>
   const fixture = await createAnalyticsFixture();
   const providerSnapshot = join(fixture.root, "provider-unsafe-version.json");
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  const snapshot = providerSnapshotDocument(fixture.head);
-  snapshot.sources.github.version = "github_pat_private-value";
-  await writeFile(providerSnapshot, JSON.stringify(snapshot));
+  for (const [index, prefix] of ["github_pat_", "ghp_", "gho_", "ghu_", "ghs_", "ghr_"].entries()) {
+    const snapshot = providerSnapshotDocument(fixture.head);
+    snapshot.sources.github.version = `${prefix}private-value`;
+    await writeFile(providerSnapshot, JSON.stringify(snapshot));
 
-  const repository = await collectProviderRepository(fixture, providerSnapshot, "provider-unsafe-version");
-  const serialized = JSON.stringify(repository);
+    const repository = await collectProviderRepository(
+      fixture,
+      providerSnapshot,
+      `provider-unsafe-version-${index}`,
+    );
+    const serialized = JSON.stringify(repository);
 
-  assert.equal(repository.sources.find((source) => source.system === "github").status, "blocked");
-  assert(!serialized.includes("github_pat_private-value"));
+    assert.equal(repository.sources.find((source) => source.system === "github").status, "blocked");
+    assert(!serialized.includes(`${prefix}private-value`));
+  }
 });
 
 test("commit count traverses non-monotonic commit dates", async (t) => {
@@ -227,6 +233,26 @@ test("dataset validation rejects tampering and zero denominators", async (t) => 
 
   dataset.repositories[0].metrics.validationPassRate.denominator = 0;
   assert.throws(() => validateAnalyticsDataset(dataset), /zero denominator|Integrity digest/);
+});
+
+test("dataset validation rejects not-applicable repository metrics", async (t) => {
+  const fixture = await createAnalyticsFixture();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const dataset = await collectAnalyticsDataset({
+    id: "not-applicable-baseline",
+    repositories: [{ id: "fixture", path: fixture.repo }],
+    observedAt: OBSERVED_AT,
+    since: SINCE,
+    until: UNTIL,
+  });
+  dataset.repositories[0].metrics.commitCount = {
+    ...dataset.repositories[0].metrics.commitCount,
+    status: "not_applicable",
+    value: null,
+  };
+  resignDataset(dataset);
+
+  assert.throws(() => validateAnalyticsDataset(dataset), /must be one of|invalid status/i);
 });
 
 test("dataset validation requires the canonical metric set and definitions", async (t) => {
@@ -960,6 +986,24 @@ test("schema-invalid control records block their source metrics", async (t) => {
   assert.equal(repository.metrics.validationAttemptCount.value, null);
 });
 
+test("control-ref parse failures never export attacker-controlled paths", async (t) => {
+  const { repo } = await createEmptyAnalyticsRepository(t, "tabellio-analytics-private-control-path-");
+  await createMetadataRef(repo, {
+    branch: "private-control-path",
+    ref: "refs/tabellio/validations",
+    files: { "commits/ghs_private-token.json": "{not-json\n" },
+  });
+
+  const repository = await collectSingleRepository(repo, "private-control-path");
+  const serialized = JSON.stringify(repository);
+
+  assert.match(
+    repository.sources.find((source) => source.system === "tabellio-validation").reason,
+    /Malformed JSON in control record/,
+  );
+  assert(!serialized.includes("ghs_private-token"));
+});
+
 test("control records for another repository block their source metrics", async (t) => {
   const { repo } = await createEmptyAnalyticsRepository(t, "tabellio-analytics-foreign-control-");
   await createMetadataRef(repo, {
@@ -1050,6 +1094,9 @@ test("analytics validator separates direct failure exits from runner evidence ev
   const directEvidencePath = join(root, "direct-evidence.json");
   const malformedDatasetPath = join(root, "malformed-dataset.json");
   const malformedEvidencePath = join(root, "malformed-evidence.json");
+  const duplicateDatasetPath = join(root, "duplicate-dataset.json");
+  const duplicateReportPath = join(root, "duplicate-report.md");
+  const duplicateEvidencePath = join(root, "duplicate-evidence.json");
   await writeFile(datasetPath, `${JSON.stringify(dataset, null, 2)}\n`);
   await writeFile(reportPath, renderAnalyticsReport(dataset));
 
@@ -1102,6 +1149,31 @@ test("analytics validator separates direct failure exits from runner evidence ev
   assert.equal(
     malformedEvidence.metrics.find((metric) => metric.name === "analytics_semantic_pass").value,
     0,
+  );
+
+  const duplicateDataset = structuredClone(dataset);
+  duplicateDataset.repositories = Array.from(
+    { length: 4 },
+    (_, index) => ({ ...structuredClone(dataset.repositories[0]), id: `duplicate-${index}` }),
+  );
+  resignDataset(duplicateDataset);
+  await writeFile(duplicateDatasetPath, JSON.stringify(duplicateDataset));
+  await writeFile(duplicateReportPath, renderAnalyticsReport(duplicateDataset));
+  await execFileAsync(process.execPath, [
+    fileURLToPath(new URL("../scripts/tabellio-analytics-validator.mjs", import.meta.url)),
+    "--profile", "semantic",
+    "--validator-id", "analytics-semantic-duplicate-test",
+    "--dataset", duplicateDatasetPath,
+    "--report", duplicateReportPath,
+    "--out", duplicateEvidencePath,
+    "--exit-mode", "evidence",
+  ], { encoding: "utf8" });
+  const duplicateEvidence = JSON.parse(await readFile(duplicateEvidencePath, "utf8"));
+
+  assert.equal(duplicateEvidence.status, "failed");
+  assert.equal(
+    duplicateEvidence.metrics.find((metric) => metric.name === "analytics_repository_count").value,
+    1,
   );
 });
 

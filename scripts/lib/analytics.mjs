@@ -292,7 +292,7 @@ function providerSourceReasonSafe(source) {
 }
 
 function isMetricStatus(status) {
-  return ["measured", "unavailable", "not_applicable"].includes(status);
+  return ["measured", "unavailable"].includes(status);
 }
 
 function hasValidMetricValue(metric) {
@@ -1028,7 +1028,7 @@ function isHttpEntityTag(value) {
 }
 
 function hasCredentialShape(value) {
-  return /(?:bearer\s|github_pat_|ghp_|(?:password|token|secret)\s*[=:])/i.test(value);
+  return /(?:bearer\s|github_pat_|gh[pousr]_|(?:password|token|secret)\s*[=:])/i.test(value);
 }
 
 function hasPortableTextControls(value, { allowSlash = false } = {}) {
@@ -1112,7 +1112,13 @@ async function collectJsonRef(repositoryPath, { id, system, ref, observedAt, inc
     const record = parseControlRecord(raw, validate);
     if (record.error) {
       return {
-        source: blockedSource({ id, system, observedAt, sourceVersion: version, reason: `${record.error} at ${name}.` }),
+        source: blockedSource({
+          id,
+          system,
+          observedAt,
+          sourceVersion: version,
+          reason: `${record.error} in control record.`,
+        }),
         values: [],
       };
     }

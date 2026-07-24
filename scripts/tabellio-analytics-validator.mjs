@@ -75,9 +75,14 @@ function validateSemanticProfile({ dataset, reportRaw }) {
   const unavailableMetrics = repositories.flatMap((repository) =>
     Object.values(repository?.metrics ?? {}).filter((entry) => entry?.status === "unavailable")
   );
+  const collectedRepositoryCount = new Set(
+    repositories
+      .filter(hasCollectedGitEvidence)
+      .map((repository) => repository.canonicalRepositoryId)
+  ).size;
   const errors = compact([
     ...datasetErrors,
-    errorUnless(repositories.length >= 4, "Fewer than four repositories were compared."),
+    errorUnless(collectedRepositoryCount >= 4, "Fewer than four distinct repositories were compared."),
     errorUnless(traces.length >= 1, "No cross-system delivery trace is present."),
     errorUnless(traces.every(hasLinkProvenance), "A delivery trace lacks explicit link provenance."),
     errorUnless(unavailableMetrics.every((entry) => entry.value === null), "Unavailable metrics must be null."),
@@ -85,7 +90,7 @@ function validateSemanticProfile({ dataset, reportRaw }) {
   ]);
   return result("Four repositories, provenance-linked delivery traces, and unknown-not-zero semantics are present.", errors, [
     metric("analytics_semantic_pass", errors.length === 0 ? 1 : 0, "boolean"),
-    metric("analytics_repository_count", repositories.length, "count"),
+    metric("analytics_repository_count", collectedRepositoryCount, "count"),
     metric("analytics_trace_count", traces.length, "count"),
   ]);
 }
@@ -141,6 +146,13 @@ function hasLinkProvenance(change) {
   return Boolean(change)
     && typeof change === "object"
     && (change.linkBasis !== "manual-reconciliation" || Boolean(change.linkEvidence));
+}
+
+function hasCollectedGitEvidence(repository) {
+  return typeof repository?.canonicalRepositoryId === "string"
+    && repository.sources?.some((source) =>
+      source?.system === "git" && source.status === "available"
+    );
 }
 
 function captureError(action) {
