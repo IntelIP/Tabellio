@@ -2,8 +2,13 @@
 import { readFile } from "node:fs/promises";
 import { parseCommandOptions, requireOptions, writeJsonOutput } from "./lib/cli-options.mjs";
 import { LocalProvenanceStore } from "./lib/local-provenance-store.mjs";
-import { assembleLineage, buildReviewPacket, captureCandidate, evaluateLineage, verifyLineage } from "./lib/provenance-ledger.mjs";
+import { assembleLineage, buildReviewPacket, captureCandidate, verifyLineage } from "./lib/provenance-ledger.mjs";
 import { captureGitSource, collectProvenanceSources } from "./lib/provenance-sources.mjs";
+import { attachSecurityReview } from "./lib/provenance-security.mjs";
+import { scanCandidateSecurity } from "./lib/provenance-security-scanners.mjs";
+import { buildProvenanceReviewResult } from "./lib/provenance-review-result.mjs";
+import { createProvenanceStatusIntent, publishProvenanceStatuses } from "./lib/provenance-review-publication.mjs";
+import { GitHubStatusPublisher } from "./providers/github-status-publisher.mjs";
 
 main().catch(() => {
   // Provider content and database errors must not escape through CLI diagnostics.
@@ -26,8 +31,12 @@ async function main() {
     import: ["input", "databaseUrl", "out"],
     replay: ["input", "databaseUrl", "out"],
     show: [...query, "out"],
-    review: [...query, "repo", "base", "head", "now", "out"],
+    review: [...query, "repo", "base", "head", "now", "reportUrl", "securityInput", "policyDigest", "out"],
+    "review-intent": [...query, "repo", "base", "head", "now", "reportUrl", "out"],
+    "publish-review": [...query, "repo", "base", "head", "intentInput", "approvalInput", "out"],
     packet: [...query, "repo", "base", "head", "now", "out"],
+    "import-security": [...query, "input", "policyDigest", "repo", "base", "head", "now", "out"],
+    security: ["input", "repo", "base", "head", "now", "gitleaks", "astGrep", "out"],
   });
   if (["import-sources", "replay-sources"].includes(options.command)) {
     await importSources(options);
@@ -37,6 +46,9 @@ async function main() {
     requireOptions(options, ["repo", "projectKey", "repositoryId"], "capture");
     await writeJsonOutput(await captureCandidate(options), options.out);
     return;
+  }
+  if (options.command === "security") {
+    return runSecurityCommand(options);
   }
   if (["import", "replay"].includes(options.command)) {
     requireOptions(options, ["input", "databaseUrl"], options.command);
@@ -62,9 +74,51 @@ async function main() {
   requireOptions(options, ["repo"], options.command);
   const candidate = await captureCandidate(options);
   const evaluation = { candidate, now: options.now ?? new Date().toISOString() };
-  const result = options.command === "packet" ? buildReviewPacket(lineage, evaluation) : evaluateLineage(lineage, evaluation);
+  if (options.command === "review-intent") {
+    await writeJsonOutput(createProvenanceStatusIntent(lineage, { ...evaluation, reportUrl: options.reportUrl ?? null }), options.out);
+    return;
+  }
+  if (options.command === "publish-review") return publishReviewCommand(options, lineage);
+  if (options.command === "import-security") {
+    return importSecurityCommand(options, { store, lineage, ...evaluation });
+  }
+  const result = options.command === "packet" ? buildReviewPacket(lineage, evaluation) : await reviewResult(options, lineage, evaluation);
   await writeJsonOutput(result, options.out);
   if (result.status !== "passed") process.exitCode = 1;
+}
+
+async function runSecurityCommand(options) {
+  requireOptions(options, ["input", "repo"], options.command);
+  const lineage = verifyLineage(await readInput(options.input));
+  const result = await scanCandidateSecurity({ ...options, lineage, now: options.now ?? new Date().toISOString() });
+  await writeJsonOutput(result, options.out);
+  if (result.status !== "passed") process.exitCode = 1;
+}
+
+async function reviewResult(options, lineage, evaluation) {
+  const securityReceipt = options.securityInput ? await readInput(options.securityInput) : null;
+  if (securityReceipt) requireOptions(options, ["policyDigest"], options.command);
+  return buildProvenanceReviewResult(lineage, { ...evaluation, reportUrl: options.reportUrl ?? null, securityReceipt, policyDigest: options.policyDigest });
+}
+
+async function publishReviewCommand(options, lineage) {
+  requireOptions(options, ["intentInput", "approvalInput"], options.command);
+  const intent = await readInput(options.intentInput);
+  const approval = await readInput(options.approvalInput);
+  const publisher = new GitHubStatusPublisher({ token: process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN });
+  const result = await publishProvenanceStatuses({ ...options, lineage, intent, approval, publisher, now: new Date().toISOString() });
+  await writeJsonOutput(result, options.out);
+  if (result.status !== "published") process.exitCode = 1;
+}
+
+async function importSecurityCommand(options, { store, lineage, candidate, now }) {
+  requireOptions(options, ["input", "policyDigest"], options.command);
+  if (candidate.id !== lineage.candidate.id) throw new Error("Security candidate changed.");
+  const review = await readInput(options.input);
+  const secured = attachSecurityReview({ lineage, review, policyDigest: options.policyDigest, now });
+  const digest = await store.putLineage(secured);
+  await writeJsonOutput({ status: review.status, candidate, digest, securityDigest: review.digest }, options.out);
+  if (review.status !== "passed") process.exitCode = 1;
 }
 
 async function importSources(options) {

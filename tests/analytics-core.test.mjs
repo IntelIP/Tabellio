@@ -90,7 +90,7 @@ test("analytics core rejects stale, unsafe, and contradictory imported evidence"
       dataset.repositories[0].sources.find((source) => source.system === "git").sourceVersion = "b".repeat(40);
     }, /does not match headCommit/],
     ["unsafe source reason", (dataset) => {
-      blockPlaneSource(dataset, "token=gho_0123456789abcdef");
+      blockPlaneSource(dataset, `token=ghp_${"x".repeat(16)}`);
     }, /safe reason/],
     ["future provider version", (dataset) => {
       dataset.repositories[0].sources.find((source) => source.system === "github").sourceVersion =
