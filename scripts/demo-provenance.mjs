@@ -123,8 +123,14 @@ try {
   await start();
   const afterRestart = await invoke("show", ...query);
   if (afterRestart.digest !== imported.digest) throw new Error("Restart changed the lineage.");
-  const statusIntent = await invoke("review-intent", ...reviewArgs);
-  const statusPublication = await publishSampleStatuses({ repo, lineage: afterRestart, intent: statusIntent, cli: initial, now });
+  const publicationQuery = [...query];
+  publicationQuery[publicationQuery.indexOf("--digest") + 1] = securityImport.digest;
+  const publicationArgs = [...publicationQuery, "--repo", repo, "--now", now];
+  const publicationLineage = await invoke("show", ...publicationQuery);
+  const publicationReview = await invoke("review", ...publicationArgs);
+  if (publicationReview.status !== "passed") throw new Error("Secured lineage review did not pass.");
+  const statusIntent = await invoke("review-intent", ...publicationArgs);
+  const statusPublication = await publishSampleStatuses({ repo, lineage: publicationLineage, intent: statusIntent, cli: publicationReview, now });
   const store = new LocalProvenanceStore({ databaseUrl }); await store.migrate();
   await run("createdb", ["--host", socketRoot, "--username", "tabellio", "--no-password", "tabellio_replay"]);
   const replayDatabaseUrl = databaseUrl.replace("/tabellio?", "/tabellio_replay?");
@@ -174,6 +180,8 @@ try {
     if (moved.status !== "blocked" || !moved.reasons.some((reason) => reason.state === "stale")) throw new Error("Moved base did not block readiness.");
   }
   receipt = { status: "passed", candidate, lineageDigest: imported.digest, checks: { cliImport: "passed", sourceImport: sourceImport.status, sourceReplay: "passed", changedSourceReplay: changedSource.status, missingSourceReplay: missingSource.status, gitOutage: unavailableGit.status, missingSecurity: sourcePacket.status, securityImport: securityImport.status, unavailableSecurityImport: blockedSecurityImport.status, review: initial.status, githubRepresentation: statusPublication.status, postgresServerRestart: "passed", deleteAndReplay: "passed", safePacket: packet.status, movedBase: moved.status }, sources: { git: "real temporary sample repository", plane: "synthetic fixture", entire: "synthetic fixture", github: "synthetic records and local fake status transport", buildkite: "synthetic fixture", security: options.verifySecurityScanners ? "real bounded scanners over immutable Git content" : "synthetic fixture" }, cost: { usd: 0, modelCalls: 0, cloudCalls: 0 } };
+  receipt.reviewedLineageDigest = publicationLineage.digest;
+  receipt.securityReviewDigest = securityReview.digest;
   failureMatrix.push(
     { case: "changed-source-replay", expected: "blocked", actual: changedSource.status, acceptedLineageUnchanged: true, rejectedLineageNotStored: true },
     { case: "git-outage", expected: "blocked", actual: unavailableGit.status, healthySourcesPreserved: true },
