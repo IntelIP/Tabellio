@@ -139,7 +139,7 @@ function checkObservation(item, context) {
 }
 
 function hasPredecessor(item, identities) {
-  return item.links.some((link) => {
+  return item.links.some(function matchesPredecessor(link) {
     // Security receipts validate their predecessor; other journey edges use supports.
     const expectedRelation = link.relation === "supports" || (item.kind === "security" && link.relation === "validates");
     if (link.basis !== "explicit" || !expectedRelation) return false;
