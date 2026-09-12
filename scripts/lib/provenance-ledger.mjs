@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { runGit } from "./git-process.mjs";
 import { normalizeRecord } from "./provenance-record.mjs";
+import { SOURCE_FAILURES } from "./provenance-source-failures.mjs";
 
 const CANDIDATE_FIELDS = ["projectKey", "repositoryId", "baseCommit", "headCommit", "mergeBase"];
 const SOURCES = new Set(["plane", "git", "entire", "github", "buildkite", "tabellio"]);
@@ -126,7 +127,8 @@ function checkObservation(item, context) {
   if (item.candidate.id !== candidateId) add("conflicting", item.kind, "Evidence refers to another exact candidate.", item.id);
   const age = evaluatedAt - Date.parse(item.observedAt);
   if (age < 0 || age > maxAgeMs) add("stale", item.kind, "Refresh observation from its original source.", item.id);
-  if (!["present", "passed"].includes(item.status)) add(item.status, item.kind, "Resolve source evidence before review readiness.", item.id);
+  const failure = Object.hasOwn(SOURCE_FAILURES, item.metadata.reason) ? SOURCE_FAILURES[item.metadata.reason] : null;
+  if (!["present", "passed"].includes(item.status)) add(item.status, item.kind, failure?.message ?? "Resolve source evidence before review readiness.", item.id);
   if (["validation", "review", "security"].includes(item.kind) && item.status === "present") add("blocked", item.kind, "An observation is not a passed result.", item.id);
   if (PREDECESSOR[item.kind] && !hasPredecessor(item, identities)) add("missing", item.kind, `Link this fact to its ${PREDECESSOR[item.kind]} source record.`, item.id);
   checkLinks(item, identities, add);
@@ -160,6 +162,8 @@ export function buildReviewPacket(lineage, options) {
     reasons: result.reasons, facts,
     redactions: ["Source payloads, raw content, and private checkpoint metadata are omitted."],
   };
-  if (Buffer.byteLength(JSON.stringify(packet)) > 65536) throw new Error("Review packet exceeds 65536 bytes; narrow the evidence set.");
-  return { ...packet, digest: digest(packet) };
+  const envelope = { ...packet, digest: digest(packet) };
+  // Include the CLI's two-space formatting and final newline in the wire limit.
+  if (Buffer.byteLength(`${JSON.stringify(envelope, null, 2)}\n`) > 65536) throw new Error("Review packet exceeds 65536 bytes; narrow the evidence set.");
+  return envelope;
 }

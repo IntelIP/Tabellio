@@ -5,6 +5,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      base_branch:
+        description: Branch to compare for changed-code checks
+        required: true
+        default: main
+        type: string
 
 permissions:
   contents: read
@@ -26,6 +32,8 @@ jobs:
         with:
           node-version: 20
           package-manager-cache: false
+      - name: Install pinned security scanners
+        run: bash .buildkite/scripts/security-tools.sh
       - name: Run repository checks
         run: npm run check
 
@@ -43,6 +51,8 @@ jobs:
         with:
           node-version: 20
           package-manager-cache: false
+      - name: Install pinned security scanners
+        run: bash .buildkite/scripts/security-tools.sh
       - name: Install pinned Fallow
         run: npm install --global fallow@2.89.0 c8@10.1.3
       - name: Measure provenance function and statement coverage
@@ -50,9 +60,10 @@ jobs:
       - name: Enforce changed-code quality gate
         env:
           FALLOW_AGENT_SOURCE: codex
+          FALLOW_BASE_BRANCH: ${{ github.base_ref || inputs.base_branch || 'main' }}
         run: |
           fallow audit \
-            --base "origin/${{ github.base_ref }}" \
+            --base "origin/$FALLOW_BASE_BRANCH" \
             --gate new-only \
             --health-baseline quality-baselines/fallow-health.json \
             --dupes-baseline quality-baselines/fallow-dupes.json \
