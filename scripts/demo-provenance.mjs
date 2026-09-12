@@ -29,6 +29,7 @@ const repo = join(root, "repo");
 let running = false;
 let initialized = false;
 let receipt;
+const failureMatrix = [];
 const env = { ...process.env, LC_ALL: "C", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_AUTHOR_NAME: "Sample", GIT_AUTHOR_EMAIL: "sample@example.invalid", GIT_COMMITTER_NAME: "Sample", GIT_COMMITTER_EMAIL: "sample@example.invalid" };
 for (const key of Object.keys(env)) if (key.startsWith("PG")) delete env[key];
 const run = (command, args, cwd = root) => execute(command, args, { cwd, env, timeout: 60000, maxBuffer: 2 * 1024 * 1024 });
@@ -117,6 +118,7 @@ try {
   const reviewArgs = [...query, "--repo", repo, "--now", now];
   const initial = await invoke("review", ...reviewArgs);
   if (initial.status !== "passed") throw new Error("Sample review did not pass.");
+  await exerciseFailureMatrix({ input, inputPath, databaseUrl, query, reviewArgs, invoke, invokeBlocked, failureMatrix });
   await stop();
   await start();
   const afterRestart = await invoke("show", ...query);
@@ -124,23 +126,28 @@ try {
   const statusIntent = await invoke("review-intent", ...reviewArgs);
   const statusPublication = await publishSampleStatuses({ repo, lineage: afterRestart, intent: statusIntent, cli: initial, now });
   const store = new LocalProvenanceStore({ databaseUrl }); await store.migrate();
+  await run("createdb", ["--host", socketRoot, "--username", "tabellio", "--no-password", "tabellio_replay"]);
+  const replayDatabaseUrl = databaseUrl.replace("/tabellio?", "/tabellio_replay?");
+  const replayStore = new LocalProvenanceStore({ databaseUrl: replayDatabaseUrl }); await replayStore.migrate();
   const sourceQuery = { digest: sourceImport.lineage.digest, projectKey: candidate.projectKey, repositoryId: candidate.repositoryId };
-  await store.removeLineage(sourceQuery);
-  if (await store.getLineage(sourceQuery) !== null) throw new Error("Source replay did not start from an empty derived record.");
+  const refsBeforeReplay = (await git("show-ref")).stdout;
+  if (await replayStore.getLineage(sourceQuery) !== null) throw new Error("Source replay did not start from an empty derived record.");
   sourceBundle.snapshots = Object.fromEntries(Object.entries(sourceBundle.snapshots).reverse());
   await writeFile(sourcePath, JSON.stringify(sourceBundle));
-  const replaySourceArgs = ["replay-sources", "--repo", repo, "--database-url", databaseUrl, "--input", sourcePath, "--now", now, "--expected-digest", sourceImport.lineage.digest];
+  const replaySourceArgs = ["replay-sources", "--repo", repo, "--database-url", replayDatabaseUrl, "--input", sourcePath, "--now", now, "--expected-digest", sourceImport.lineage.digest];
   for (let replay = 0; replay < 2; replay += 1) {
     const rebuilt = await invoke(...replaySourceArgs);
     if (rebuilt.status !== "stored" || rebuilt.lineage.digest !== sourceImport.lineage.digest) throw new Error("Source replay changed the record.");
   }
   if (JSON.stringify(sourceBundle) !== await readFile(sourcePath, "utf8")) throw new Error("Replay modified original source snapshots.");
+  if ((await git("show-ref")).stdout !== refsBeforeReplay) throw new Error("Replay modified Git source refs.");
+  failureMatrix.push({ case: "clean-store-replay", expected: "passed", actual: "passed", lineageDigest: sourceQuery.digest, sourceSnapshotsUnchanged: true, gitRefsUnchanged: true });
   sourceBundle.snapshots.github.reviews[0].state = "changes_requested";
   await writeFile(sourcePath, JSON.stringify(sourceBundle));
   const changedSource = await invokeBlocked(...replaySourceArgs);
   if (changedSource.status !== "blocked" || changedSource.lineage.digest === sourceQuery.digest) throw new Error("Changed source replay was accepted.");
-  if (await store.getLineage({ ...sourceQuery, digest: changedSource.lineage.digest }) !== null) throw new Error("Rejected replay was persisted.");
-  if ((await store.getLineage(sourceQuery))?.digest !== sourceQuery.digest) throw new Error("Rejected replay changed the original record.");
+  if (await replayStore.getLineage({ ...sourceQuery, digest: changedSource.lineage.digest }) !== null) throw new Error("Rejected replay was persisted.");
+  if ((await replayStore.getLineage(sourceQuery))?.digest !== sourceQuery.digest) throw new Error("Rejected replay changed the original record.");
   sourceBundle.snapshots.github.reviews[0].state = "approved";
   await writeFile(sourcePath, JSON.stringify(sourceBundle));
   const unavailableGitArgs = [...replaySourceArgs];
@@ -167,6 +174,12 @@ try {
     if (moved.status !== "blocked" || !moved.reasons.some((reason) => reason.state === "stale")) throw new Error("Moved base did not block readiness.");
   }
   receipt = { status: "passed", candidate, lineageDigest: imported.digest, checks: { cliImport: "passed", sourceImport: sourceImport.status, sourceReplay: "passed", changedSourceReplay: changedSource.status, missingSourceReplay: missingSource.status, gitOutage: unavailableGit.status, missingSecurity: sourcePacket.status, securityImport: securityImport.status, unavailableSecurityImport: blockedSecurityImport.status, review: initial.status, githubRepresentation: statusPublication.status, postgresServerRestart: "passed", deleteAndReplay: "passed", safePacket: packet.status, movedBase: moved.status }, sources: { git: "real temporary sample repository", plane: "synthetic fixture", entire: "synthetic fixture", github: "synthetic records and local fake status transport", buildkite: "synthetic fixture", security: options.verifySecurityScanners ? "real bounded scanners over immutable Git content" : "synthetic fixture" }, cost: { usd: 0, modelCalls: 0, cloudCalls: 0 } };
+  failureMatrix.push(
+    { case: "changed-source-replay", expected: "blocked", actual: changedSource.status, acceptedLineageUnchanged: true, rejectedLineageNotStored: true },
+    { case: "git-outage", expected: "blocked", actual: unavailableGit.status, healthySourcesPreserved: true },
+    { case: "missing-source", expected: "blocked", actual: missingSource.status },
+    { case: "moved-base", expected: "blocked", actual: moved.status, reasons: moved.reasons },
+  );
 } catch (error) {
   const postgresLog = await readFile(join(root, "postgres.log"), "utf8").catch(() => "");
   const socketPathFailure = /Unix-domain socket path.*too long/i.test(postgresLog);
@@ -194,7 +207,49 @@ try {
     process.exitCode = 1;
   }
   receipt.durationMs = Date.now() - startedAt;
+  receipt.failureMatrix = failureMatrix;
   await writeJsonOutput(receipt, options.out);
+}
+
+async function exerciseFailureMatrix({ input, inputPath, databaseUrl, query, reviewArgs, invoke, invokeBlocked, failureMatrix }) {
+  const cases = [
+    ["missing", (value) => value.observations.splice(0, 1), "blocked"],
+    ["stale", (value) => { value.observations[0].observedAt = "2000-01-01T00:00:00Z"; }, "blocked"],
+    ["conflicting", (value) => { value.observations[2].candidate = { ...value.candidate, headCommit: "c".repeat(40) }; }, "blocked"],
+    ["failed-validation", (value) => { value.observations[5].status = "failed"; }, "failed"],
+  ];
+  for (const [name, mutate, expected] of cases) {
+    const value = structuredClone(input);
+    mutate(value);
+    await writeFile(inputPath, JSON.stringify(value));
+    const imported = await invoke("import", "--database-url", databaseUrl, "--input", inputPath);
+    const args = [...reviewArgs];
+    args[args.indexOf("--digest") + 1] = imported.digest;
+    const result = await invokeBlocked("review", ...args);
+    failureMatrix.push({ case: name, expected, actual: result.status, lineageDigest: imported.digest, reasons: result.reasons });
+    if (result.status !== expected || !result.reasons.length) throw new Error("Failure matrix verdict mismatch.");
+  }
+  await writeFile(inputPath, JSON.stringify(input));
+  const original = await invoke("show", ...query);
+  const tampered = structuredClone(original);
+  tampered.observations[0].status = "failed";
+  const secret = structuredClone(input);
+  const privateMarker = "password=" + "sample-private-value";
+  secret.observations[0].sourceId = privateMarker;
+  for (const [name, value] of [["tampered", tampered], ["secret", secret]]) {
+    await writeFile(inputPath, JSON.stringify(value));
+    let result;
+    try {
+      await invoke("import", "--database-url", databaseUrl, "--input", inputPath);
+      throw new Error("Unsafe input accepted.");
+    } catch (error) {
+      if (error.code !== 1 || error.stdout || !error.stderr || error.stderr.includes(privateMarker)) throw new Error("Unsafe input was not rejected with safe diagnostics.");
+      result = JSON.parse(error.stderr);
+    }
+    failureMatrix.push({ case: name, expected: "blocked", actual: result.status, reason: result.reason });
+    if (result.status !== "blocked") throw new Error("Unsafe input did not block.");
+  }
+  await writeFile(inputPath, JSON.stringify(input));
 }
 
 async function publishSampleStatuses({ repo, lineage, intent, cli, now }) {

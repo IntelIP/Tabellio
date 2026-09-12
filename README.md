@@ -54,6 +54,13 @@ Git and PostgreSQL operations are real; Plane, Entire, GitHub, Buildkite, and
 security observations in this sample are explicitly synthetic. This is not a
 live-provider or security-scanner certification.
 
+The demo receipt includes a failure matrix with expected and actual verdicts,
+safe reasons, and lineage digests where available. It exercises missing, stale,
+conflicting, tampered, secret, failed-validation, outage, and moved-base cases.
+Source replay runs twice in a newly created local database, verifies the original
+digest, and checks that source snapshots and Git refs remain unchanged. Cleanup
+and local cost/time are recorded even when the demo fails.
+
 To replace the sample security observation with real bounded checks, install
 Gitleaks 8.30.1 and ast-grep 0.45.1 on `PATH`, then run:
 
