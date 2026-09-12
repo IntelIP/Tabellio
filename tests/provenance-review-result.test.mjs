@@ -14,6 +14,11 @@ function observations() {
 const lineage = (items = observations()) => assembleLineage({ candidate, observations: items });
 const result = (input = lineage(), options = {}) => buildProvenanceReviewResult(input, { now, ...options });
 
+test("review results do not disclose private checkpoint identifiers", () => {
+  const value = result();
+  assert.ok(!JSON.stringify(value).includes("0123456789ab"));
+});
+
 test("CLI and GitHub preserve separate review/security verdicts and exact candidate", () => {
   const value = result();
   assert.equal(value.status, "passed");

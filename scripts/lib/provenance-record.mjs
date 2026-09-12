@@ -103,6 +103,7 @@ function canonicalObject(value, path, state, depth) {
 }
 
 function canonicalField(key, value, path, state, depth) {
+    if (hasUnsupportedPostgresText(key)) throw new Error("record.payload contains unsupported PostgreSQL text in a field name.");
     const normalizedKey = key
       .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
       .replace(/([a-z0-9])([A-Z])/g, "$1_$2")

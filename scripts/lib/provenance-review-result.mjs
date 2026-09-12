@@ -67,7 +67,7 @@ export function buildProvenanceReviewResult(lineage, { candidate = lineage.candi
   const repo = repository(result.currentCandidate);
   const targetUrl = reportLink(reportUrl);
   const evidence = lineage.observations.filter((item) => item.candidate.id === result.currentCandidate.id).map((item) => ({
-    id: item.id, kind: item.kind, source: item.source, sourceId: item.sourceId,
+    id: item.id, kind: item.kind, source: item.source, sourceId: item.kind === "checkpoint" ? "[private checkpoint]" : item.sourceId,
     lineageDigest: lineage.digest, url: sourceUrl(item, repo),
   }));
   const review = section("review", result.reasons.filter((item) => item.kind !== "security"), evidence);

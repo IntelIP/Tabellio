@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { LocalProvenanceStore } from "../scripts/lib/local-provenance-store.mjs";
@@ -29,6 +30,9 @@ test("lineage persists atomically, isolates projects, and replays from original 
   const databaseName = await createTestDatabase(t);
   const databaseUrl = testDatabaseUrl(databaseName);
   const store = new LocalProvenanceStore({ databaseUrl }); await store.migrate();
+  const cli = fileURLToPath(new URL("../scripts/tabellio-local-store.mjs", import.meta.url));
+  const migration = JSON.parse((await execFileAsync(process.execPath, [cli, "migrate", "--database-url", databaseUrl])).stdout);
+  assert.equal(migration.version, "002_tabellio_lineages");
   const candidate = candidateIdentity({ projectKey: "SAMPLE", repositoryId: "sample/repository", baseCommit: "a".repeat(40), headCommit: "b".repeat(40), mergeBase: "a".repeat(40) });
   const observations = sampleObservations(candidate);
   const lineage = assembleLineage({ candidate, observations });
@@ -140,6 +144,9 @@ test("local provenance enforces metadata boundaries without PostgreSQL", functio
   for (const invalidText of ["trailing\ud800", "\udfff", "\ud800\ud800"]) {
     assert.throws(() => normalizeRecord({ ...record, sourceId: invalidText }), /unsupported PostgreSQL text/);
     assert.throws(() => normalizeRecord({ ...record, payload: { note: invalidText } }), /unsupported PostgreSQL text/);
+  }
+  for (const key of ["source\u0000id", "source\ud800id", "source\udfffid"]) {
+    assert.throws(() => normalizeRecord({ ...record, payload: { [key]: "safe" } }), /unsupported PostgreSQL text/);
   }
   assert.equal(normalizeRecord({ ...record, payload: { note: "valid\ud83d\ude00" } }).payload.note, "valid\ud83d\ude00");
   for (const pullRequestNumber of [0, 2_147_483_648]) {

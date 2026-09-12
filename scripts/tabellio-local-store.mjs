@@ -21,10 +21,11 @@ async function main() {
     databaseUrl: options.databaseUrl,
     psqlBinary: options.psql,
     migrationPath: options.migration,
-  }); await store.migrate();
+  });
+  const migration = await store.migrate();
 
   if (options.command === "migrate") {
-    await writeJsonOutput({ ok: true, status: "migrated", version: "001_tabellio_records" });
+    await writeJsonOutput({ ok: true, status: "migrated", version: migration.version });
     return;
   }
   if (options.command === "count") {

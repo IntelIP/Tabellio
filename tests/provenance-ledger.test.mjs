@@ -15,6 +15,29 @@ const candidate = candidateIdentity({ projectKey: "SAMPLE", repositoryId: "sampl
 const now = "2026-09-12T12:00:01Z";
 const input = () => ({ candidate, observations: sampleObservations(candidate) });
 
+test("public packets redact checkpoints and wrong relationship types cannot establish readiness", () => {
+  const value = input();
+  const packet = buildReviewPacket(assembleLineage(value), { now });
+  assert.ok(!JSON.stringify(packet).includes("0123456789ab"));
+  assert.equal(packet.facts.find((fact) => fact.kind === "checkpoint").sourceId, "[private checkpoint]");
+  for (const observation of value.observations) for (const link of observation.links) link.relation = "reviews";
+  const result = evaluateLineage(assembleLineage(value), { now });
+  assert.equal(result.status, "blocked");
+  assert.ok(result.reasons.some((reason) => reason.state === "missing"));
+});
+
+test("lineage hashes do not depend on the host locale", async () => {
+  const value = input();
+  value.observations[0].links = ["ä", "z", "ä"].map((sourceId) => ({ relation: "supports", basis: "explicit", source: "plane", sourceId }));
+  const moduleUrl = new URL("../scripts/lib/provenance-ledger.mjs", import.meta.url).href;
+  const script = `import { assembleLineage } from ${JSON.stringify(moduleUrl)}; console.log(assembleLineage(JSON.parse(process.argv[1])).digest);`;
+  const hashes = await Promise.all(["en_US.UTF-8", "sv_SE.UTF-8"].map(async (locale) => {
+    const output = await execute(process.execPath, ["--input-type=module", "-e", script, JSON.stringify(value)], { env: { ...process.env, LC_ALL: locale, LANG: locale } });
+    return output.stdout.trim();
+  }));
+  assert.equal(hashes[0], hashes[1]);
+});
+
 test("review packet schema accepts generated packets and rejects unsafe envelopes", async () => {
   const schema = JSON.parse(await readFile(new URL("../schemas/provenance-review-packet.schema.json", import.meta.url), "utf8"));
   const complete = buildReviewPacket(assembleLineage(input()), { now });

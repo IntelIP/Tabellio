@@ -15,6 +15,10 @@ function digest(value) {
   return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
 
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
@@ -58,7 +62,7 @@ function normalizeObservation(input) {
     payload: input.metadata ?? {},
   });
   if (!Array.isArray(input.links) || input.links.length > 32) throw new Error("Observation needs bounded explicit links.");
-  const links = input.links.map(normalizeLink).sort((a, b) => canonicalJson(a).localeCompare(canonicalJson(b)));
+  const links = input.links.map(normalizeLink).sort((a, b) => compareText(canonicalJson(a), canonicalJson(b)));
   const observation = {
     source: input.source, sourceId: normalized.sourceId, kind: input.kind, status: input.status,
     observedAt: normalized.observedAt, candidate, metadata: normalized.payload, links,
@@ -81,7 +85,7 @@ export function assembleLineage({ candidate: input, observations }) {
     const item = normalizeObservation(input);
     unique.set(item.id, item);
   }
-  const records = [...unique.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const records = [...unique.values()].sort((a, b) => compareText(a.id, b.id));
   const lineage = { schemaVersion: "tabellio-lineage/v0.1", candidate, observations: records };
   return { ...lineage, digest: digest(lineage) };
 }
@@ -136,7 +140,9 @@ function checkObservation(item, context) {
 
 function hasPredecessor(item, identities) {
   return item.links.some((link) => {
-    if (link.basis !== "explicit") return false;
+    // Security receipts validate their predecessor; other journey edges use supports.
+    const expectedRelation = link.relation === "supports" || (item.kind === "security" && link.relation === "validates");
+    if (link.basis !== "explicit" || !expectedRelation) return false;
     const targets = identities.get(`${link.source}\0${link.sourceId}`) ?? [];
     return targets.some((target) => target.kind === PREDECESSOR[item.kind] && target.candidate.id === item.candidate.id);
   });
@@ -154,7 +160,7 @@ function checkLinks(item, identities, add) {
 export function buildReviewPacket(lineage, options) {
   const result = evaluateLineage(lineage, options);
   const facts = lineage.observations.filter((item) => item.candidate.id === result.currentCandidate.id).map(({ id, source, sourceId, observedAt, kind, status, candidate }) => ({
-    id, source, sourceId, observedAt, kind, status, candidateId: candidate.id,
+    id, source, sourceId: kind === "checkpoint" ? "[private checkpoint]" : sourceId, observedAt, kind, status, candidateId: candidate.id,
   }));
   const packet = {
     schemaVersion: "tabellio-review-packet/v0.1", authoritative: false,
