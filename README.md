@@ -216,6 +216,16 @@ AI-assisted pull requests should not depend on reviewer trust alone. Tabellio gi
 
 ## Quick Start
 
+Install the v0.7.0 package on a trusted worker:
+
+```bash
+npm install --save-dev @intelip/tabellio@0.7.0
+npx tabellio-version --expect-version 0.7.0
+```
+
+Until npm publication completes, validate from a clean source checkout or a
+locally packed candidate. Registry availability is part of the release gate.
+
 Enable the required ledger, initialize stacks, and validate the canonical platform contract:
 
 ```bash
@@ -377,6 +387,7 @@ The external-action checker fails when an action is marked `attempted: true` wit
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
+- [v0.7.0 GTM launch contract](docs/gtm/v0.7.0-launch.md)
 
 ## License
 

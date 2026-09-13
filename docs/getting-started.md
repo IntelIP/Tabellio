@@ -10,6 +10,19 @@ Tabellio captures GitHub-bound context and can attach a machine-readable evidenc
 - git-spice 0.18 or later for optional stack snapshots
 - Entire CLI 0.7.7 or later for mandatory checkpoint metadata export
 
+## Install
+
+Install the published package on a trusted worker:
+
+```bash
+npm install --save-dev @intelip/tabellio@0.7.0
+npx tabellio-version --expect-version 0.7.0
+```
+
+The public install command becomes a release check only after the npm registry
+returns version `0.7.0`. Before publication, use a clean source checkout or the
+candidate tarball produced by `npm pack`.
+
 GitHub is the canonical code store through the `origin` remote. Tabellio does not use it for private agent transcripts, validation results, review ledgers, or control refs. No hosted workflow runtime is required.
 
 Enable Entire for Codex before creating agent commits:
@@ -73,6 +86,16 @@ node scripts/tabellio-control-ref.mjs plan \
 
 ## Preflight And Release
 
+Inspect the local runner identity before trusting a version claim:
+
+```bash
+npm run tabellio:version -- \
+  --expect-version 0.7.0 \
+  --expect-ref HEAD
+```
+
+Add `--require-clean` for an immutable candidate and `--require-release-tag` only after the approved, non-draft GitHub Release exists. The release check requires an annotated `origin` tag at the exact source commit; a local-only tag is insufficient.
+
 Run preflight before agent work and again from clean merged `main`:
 
 ```bash
@@ -104,8 +127,8 @@ node scripts/tabellio-release.mjs plan \
   --owner example \
   --remote-repo repository \
   --number 42 \
-  --version 0.5.0 \
-  --notes docs/releases/v0.5.0.md \
+  --version 0.7.0 \
+  --notes docs/releases/v0.7.0.md \
   --out /tmp/tabellio-release-intent.json
 ```
 
