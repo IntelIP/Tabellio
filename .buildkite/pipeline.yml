@@ -3,7 +3,7 @@ env:
   NO_COLOR: "1"
 
 agents:
-  queue: "macos-medium"
+  queue: "linux-small"
 
 steps:
   - label: ":git: Supported Git"

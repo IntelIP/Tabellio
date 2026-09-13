@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Hosted Linux jobs use fresh images; keep setup local to this pipeline.
+if [[ "$(uname -s)" == "Linux" ]]; then
+  bash .buildkite/scripts/linux-tools.sh
+fi
