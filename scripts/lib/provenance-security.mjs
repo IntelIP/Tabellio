@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
 import { assembleLineage, buildReviewPacket, candidateIdentity, verifyLineage } from "./provenance-ledger.mjs";
 import { normalizeRecord } from "./provenance-record.mjs";
@@ -77,7 +78,7 @@ export function attachSecurityReview({ lineage, review, policyDigest, now }) {
   });
   const status = checks.some((item) => item.status === "failed") ? "failed" : checks.every((item) => item.status === "passed") ? "passed" : "blocked";
   const expected = { schemaVersion: review.schemaVersion, candidate: lineage.candidate, packetDigest: packet.digest, policyDigest, observedAt: review.observedAt, status, checks };
-  requireFact(review.digest === hash(expected) && JSON.stringify(review) === JSON.stringify({ ...expected, digest: review.digest }));
+  requireFact(review.digest === hash(expected) && isDeepStrictEqual(review, { ...expected, digest: review.digest }));
   requireFact(Number.isFinite(Date.parse(now)) && Date.parse(review.observedAt) <= Date.parse(now));
   const validation = lineage.observations.filter((item) => item.kind === "validation" && item.candidate.id === lineage.candidate.id);
   requireFact(validation.length === 1);

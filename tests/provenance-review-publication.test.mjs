@@ -1,3 +1,4 @@
+import { GitJsonLedger } from "../scripts/lib/git-json-ledger.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createFeatureFixture } from "./helpers/git-fixture.mjs";
@@ -136,4 +137,42 @@ test("missing shared control remote prevents all GitHub writes", async (t) => {
   await runGit({ cwd: input.repo, args: ["remote", "remove", "control"] });
   await assert.rejects(publishProvenanceStatuses(input));
   assert.equal(input.calls.length, 0);
+});
+
+
+test("malformed cached receipts cannot claim publication", async (t) => {
+  const input = await setup(t);
+  const ref = `refs/tabellio/provenance-status-reservations/${digestObject({ approvalId: input.approval.id })}`;
+  const ledger = await GitJsonLedger.open({ repoPath: input.repo, ref });
+  await ledger.write("receipt.json", { intentDigest: input.intent.integrity.digest, status: "published" }, { expectedVersion: null });
+  await assert.rejects(publishProvenanceStatuses(input));
+  assert.equal(input.calls.length, 0);
+});
+
+test("shared receipts validate complete approval and status bindings", async (t) => {
+  const input = await setup(t);
+  const valid = await publishProvenanceStatuses(input);
+  const ref = `refs/tabellio/provenance-status-reservations/${digestObject({ approvalId: input.approval.id })}`;
+  const ledger = await GitJsonLedger.open({ repoPath: input.repo, ref });
+  for (const mutate of [
+    value => { value.schemaVersion = "unknown"; },
+    value => { value.approvalId = "other"; },
+    value => { value.candidateId = "a".repeat(64); },
+    value => { value.published.pop(); },
+    value => { value.published[0].commit = "a".repeat(40); },
+    value => { value.published[0].state = "error"; },
+    value => { value.published[0].context = "unrelated"; },
+    value => { value.published[0].id = "invalid"; },
+    value => { value.published[1].id = value.published[0].id; },
+    value => { value.attemptedAt = "2026-09-12T13:00:00Z"; },
+    value => { value.extra = "untrusted"; },
+  ]) {
+    const corrupted = structuredClone(valid);
+    mutate(corrupted);
+    const before = await ledger.version();
+    const next = await ledger.write("receipt.json", corrupted, { expectedVersion: before });
+    await runGit({ cwd: input.repo, args: ["push", `--force-with-lease=${ref}:${before}`, "control", `${next.version}:${ref}`] });
+    await assert.rejects(publishProvenanceStatuses(input));
+    assert.equal(input.calls.length, 2);
+  }
 });

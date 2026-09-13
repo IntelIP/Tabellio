@@ -137,3 +137,15 @@ test("security findings use deterministic code-unit ordering", async () => {
   assert.deepEqual(review.checks.find(item => item.category === "secrets").findings.map(item => item.path), ["z.js", "ä.js"]);
   assert.equal(evaluateLineage(attach(review), { now }).status, "failed");
 });
+
+
+test("security receipts survive JSON object key reordering", async () => {
+  const review = await run();
+  function sorted(value) {
+    if (Array.isArray(value)) return value.map(sorted);
+    if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map(key => [key, sorted(value[key])]));
+    return value;
+  }
+  const reordered = JSON.parse(JSON.stringify(sorted(review)));
+  assert.deepEqual(attach(reordered), attach(review));
+});

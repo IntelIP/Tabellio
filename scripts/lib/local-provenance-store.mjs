@@ -113,7 +113,8 @@ export class LocalProvenanceStore {
     const repositoryId = boundedText(query.repositoryId, "repositoryId");
     const variables = {};
     const sql = `SELECT envelope::text FROM tabellio_lineages WHERE ${lineageWhere(query, variables)};`;
-    const result = await runPsql({ databaseUrl: this.databaseUrl, psqlBinary: this.psqlBinary, sql, variables, tuplesOnly: true });
+    // 256 bounded observations, their links, and JSONB spacing fit below 64 MiB.
+    const result = await runPsql({ databaseUrl: this.databaseUrl, psqlBinary: this.psqlBinary, sql, variables, tuplesOnly: true, maxOutputBytes: 64 * 1024 * 1024 });
     if (!result) return null;
     const { verifyLineage } = await import("./provenance-ledger.mjs");
     const lineage = verifyLineage(JSON.parse(result));
@@ -185,7 +186,7 @@ function validateConnectionParameter([rawKey, value]) {
   if (hosts.some((host) => !isLocalHost(host) && !host.startsWith("/"))) throw new Error("TAB-19 local storage accepts only a local PostgreSQL host or Unix socket.");
 }
 
-async function runPsql({ databaseUrl, psqlBinary, sql, variables = {}, tuplesOnly = false }) {
+async function runPsql({ databaseUrl, psqlBinary, sql, variables = {}, tuplesOnly = false, maxOutputBytes = 2 * 1024 * 1024 }) {
   const args = ["--no-psqlrc", "--no-password", "--quiet", "--set=ON_ERROR_STOP=1"];
   if (tuplesOnly) args.push("--tuples-only", "--no-align");
   args.push("--dbname", databaseUrl);
@@ -206,13 +207,15 @@ async function runPsql({ databaseUrl, psqlBinary, sql, variables = {}, tuplesOnl
       env: childEnvironment, stdio: ["pipe", "pipe", "pipe"], timeout: 15000, killSignal: "SIGKILL",
     });
     let stdout = "";
+    let stdoutBytes = 0;
     let stderr = "";
     const result = await new Promise((resolve, reject) => {
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
       child.stdout.on("data", (chunk) => {
         stdout += chunk;
-        if (Buffer.byteLength(stdout) > 2 * 1024 * 1024) child.kill("SIGKILL");
+        stdoutBytes += Buffer.byteLength(chunk);
+        if (stdoutBytes > maxOutputBytes) child.kill("SIGKILL");
       });
       child.stderr.on("data", (chunk) => {
         stderr += chunk;

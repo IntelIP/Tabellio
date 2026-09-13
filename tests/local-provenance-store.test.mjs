@@ -386,3 +386,34 @@ test("rejected payload keys never appear in diagnostics", () => {
     return true;
   });
 });
+
+
+test("malformed record JSON never leaks input through CLI diagnostics", { skip: !postgresAvailable }, async (t) => {
+  const databaseUrl = testDatabaseUrl(await createTestDatabase(t));
+  const root = await mkdtemp(join(tmpdir(), "tabellio-json-error-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const file = join(root, "record.json");
+  const marker = "password=" + "synthetic-private-marker";
+  await writeFile(file, marker);
+  const cli = fileURLToPath(new URL("../scripts/tabellio-local-store.mjs", import.meta.url));
+  await assert.rejects(execFileAsync(process.execPath, [cli, "put", "--record", file, "--database-url", databaseUrl]), error => {
+    assert.equal(error.code, 1);
+    assert.ok(!error.stderr.includes("synthetic-private-marker"));
+    assert.match(error.stderr, /must contain valid JSON/);
+    return true;
+  });
+});
+
+test("valid lineages above two MiB remain readable after persistence", { skip: !postgresAvailable }, async (t) => {
+  const name = await createTestDatabase(t);
+  const store = new LocalProvenanceStore({ databaseUrl: testDatabaseUrl(name) });
+  await store.migrate();
+  const candidate = candidateIdentity({ projectKey: "SAMPLE", repositoryId: "sample/repository", baseCommit: "a".repeat(40), headCommit: "b".repeat(40), mergeBase: "a".repeat(40) });
+  const item = sampleObservations(candidate).find(item => item.kind === "validation");
+  const observations = Array.from({ length: 40 }, (_, index) => ({ ...item, sourceId: `build-${index}`, metadata: { note: "x".repeat(60000) } }));
+  const lineage = assembleLineage({ candidate, observations });
+  assert.ok(Buffer.byteLength(JSON.stringify(lineage)) > 2 * 1024 * 1024);
+  await store.putLineage(lineage);
+  const reconnected = new LocalProvenanceStore({ databaseUrl: testDatabaseUrl(name) });
+  assert.deepEqual(await reconnected.getLineage({ digest: lineage.digest, projectKey: candidate.projectKey, repositoryId: candidate.repositoryId }), lineage);
+});

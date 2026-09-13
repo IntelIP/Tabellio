@@ -10,6 +10,7 @@ import { NativeGitStore } from "../providers/native-git-store.mjs";
 
 const INTENT = "tabellio-provenance-status-intent/v0.1";
 const APPROVAL = "tabellio-provenance-status-approval/v0.1";
+const FAILED_DELIVERY = "Publication failed or became uncertain. Inspect GitHub statuses and the stored receipt before authorizing another attempt.";
 
 export function createProvenanceStatusIntent(lineage, options) {
   const result = buildProvenanceReviewResult(lineage, options);
@@ -56,8 +57,34 @@ async function sendStatuses({ repo, intent, base, head, publisher }) {
     await assertCurrent(repo, intent, base, head);
     return { status: "published", published };
   } catch {
-    return { status: "blocked", published, reason: "Publication failed or became uncertain. Inspect GitHub statuses and the stored receipt before authorizing another attempt." };
+    return { status: "blocked", published, reason: FAILED_DELIVERY };
   }
+}
+
+function validateStoredReceipt(receipt, intent, approval, now) {
+  contract.object(receipt, "receipt");
+  contract.member(receipt.status, ["pending", "blocked", "published"], "receipt.status");
+  contract.exactKeys(receipt, ["schemaVersion", "approvalId", "intentDigest", "candidateId", "attemptedAt", "status", "published", ...(receipt.status === "blocked" ? ["reason"] : [])], "receipt");
+  contract.equals(receipt.schemaVersion, "tabellio-provenance-status-receipt/v0.1", "receipt.schemaVersion");
+  contract.equals(receipt.approvalId, approval.id, "receipt.approvalId");
+  contract.equals(receipt.intentDigest, intent.integrity.digest, "receipt.intentDigest");
+  contract.equals(receipt.candidateId, intent.candidate.id, "receipt.candidateId");
+  contract.date(receipt.attemptedAt, "receipt.attemptedAt");
+  const attemptedAt = Date.parse(receipt.attemptedAt);
+  if (attemptedAt < Date.parse(approval.approvedAt) || attemptedAt > Date.parse(approval.expiresAt) || attemptedAt > Date.parse(now)) throw new Error("Receipt attempt is outside the approval window.");
+  if (!Array.isArray(receipt.published) || receipt.published.length > intent.statuses.length) throw new Error("Invalid receipt status records.");
+  if (receipt.status === "published") contract.equals(receipt.published.length, intent.statuses.length, "receipt.published count");
+  if (receipt.status === "pending") contract.equals(receipt.published.length, 0, "pending receipt count");
+  if (receipt.status === "blocked") contract.equals(receipt.reason, FAILED_DELIVERY, "receipt.reason");
+  const ids = new Set();
+  for (const [index, published] of receipt.published.entries()) {
+    contract.object(published, "receipt.published");
+    contract.exactKeys(published, ["id", "commit", "state", "context"], "receipt.published");
+    if (typeof published.id !== "string" || !/^[0-9]{1,20}$/.test(published.id) || ids.has(published.id)) throw new Error("Invalid receipt status ID.");
+    ids.add(published.id);
+    for (const key of ["commit", "state", "context"]) contract.equals(published[key], intent.statuses[index][key], `receipt.published.${key}`);
+  }
+  return receipt;
 }
 
 export async function publishProvenanceStatuses({ repo, lineage, intent, approval, publisher, now, base = "main", head = "HEAD" }) {
@@ -80,10 +107,11 @@ export async function publishProvenanceStatuses({ repo, lineage, intent, approva
   if (remoteVersion) {
     await runGit({ cwd: repo, args: ["fetch", "--no-write-fetch-head", intent.reservationRemote, ref] });
     const stored = await runGit({ cwd: repo, args: ["show", `${remoteVersion}:${path}`] });
-    prior = { value: JSON.parse(stored.stdout), version: remoteVersion };
+    try { prior = { value: JSON.parse(stored.stdout), version: remoteVersion }; }
+    catch { throw new Error("Invalid stored publication receipt JSON."); }
   }
   if (prior.value !== null) {
-    contract.equals(prior.value.intentDigest, intent.integrity.digest, "used approval intent");
+    validateStoredReceipt(prior.value, intent, approval, now);
     if (prior.value.status !== "pending") return prior.value;
     return { ...prior.value, status: "blocked", reason: "An earlier attempt is unresolved. Inspect GitHub before authorizing another attempt." };
   }

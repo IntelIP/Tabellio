@@ -48,7 +48,7 @@ async function readJson(path) {
   const text = await readFile(path, "utf8");
   try {
     return JSON.parse(text);
-  } catch (error) {
-    throw new Error(`--record must contain valid JSON: ${error.message}`);
+  } catch {
+    throw new Error("--record must contain valid JSON.");
   }
 }
