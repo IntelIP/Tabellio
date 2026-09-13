@@ -530,3 +530,16 @@ function availableSnapshot() {
     }],
   };
 }
+
+
+test("Buildkite collector rejects immutable build ID drift", async () => {
+  const snapshot = await collectBuildkiteBuildSnapshot({
+    ...collectorOptions(),
+    request: async (path) => {
+      const response = await fixtureRequest()(path);
+      if (path.includes("/builds/4?")) response.id = "55555555-5555-4555-8555-555555555555";
+      return response;
+    },
+  });
+  assert.equal(snapshot.status, "blocked");
+});

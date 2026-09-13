@@ -17,6 +17,11 @@ fi
 . .buildkite/scripts/verify-git-toolchain.sh
 . .buildkite/scripts/security-tools.sh
 
+postgres_bin="$(pg_config --bindir)"
+test -x "$postgres_bin/initdb"
+test -x "$postgres_bin/pg_ctl"
+export PATH="$postgres_bin:$PATH"
+
 candidate="${BUILDKITE_COMMIT:-HEAD}"
 base_branch="${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-${TABELLIO_BASE_BRANCH:-main}}"
 base_ref="origin/${base_branch}"

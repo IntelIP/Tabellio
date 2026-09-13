@@ -327,7 +327,8 @@ function nullableFinishedAt(value) {
 }
 
 function assertSameBuild(summary, detail) {
-  if (summary.number !== detail.number || summary.commit !== detail.commit || (summary.id !== undefined && summary.id !== detail.id)) {
+  const identityFields = summary.id === undefined ? ["number", "commit"] : ["number", "commit", "id"];
+  if (identityFields.some((field) => summary[field] !== detail[field])) {
     throw new Error("Buildkite build detail identity mismatch.");
   }
 }

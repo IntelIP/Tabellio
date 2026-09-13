@@ -376,3 +376,13 @@ function localEnvironment() {
   }
   return environment;
 }
+
+
+test("rejected payload keys never appear in diagnostics", () => {
+  const key = "password=" + "synthetic-private-value";
+  assert.throws(() => normalizeRecord({ entityType: "reference", entityKey: "safe", source: "tabellio", sourceId: "safe", observedAt: "2026-01-01T00:00:00Z", sensitivity: "private", payload: { [key]: "value" } }), error => {
+    assert.ok(!error.message.includes(key));
+    assert.match(error.message, /forbidden|unapproved/);
+    return true;
+  });
+});

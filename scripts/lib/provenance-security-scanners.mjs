@@ -37,11 +37,12 @@ function execute(command, args, { cwd, signal, binary = false } = {}) {
 }
 
 async function snapshot(repo, candidate, directory) {
-  const result = await execute("git", ["ls-tree", "-r", "-z", candidate.headCommit], { cwd: repo });
+  const result = await execute("git", ["ls-tree", "-r", "-z", candidate.headCommit], { cwd: repo, binary: true });
   if (result.exitCode !== 0) throw new Error("Candidate tree unavailable.");
   const files = new Map();
   let totalBytes = 0;
-  for (const row of result.stdout.split("\0").filter(Boolean)) {
+  const tree = new TextDecoder("utf-8", { fatal: true }).decode(result.stdout);
+  for (const row of tree.split("\0").filter(Boolean)) {
     const match = /^(100644|100755) blob ([a-f0-9]{40,64})\t(.+)$/s.exec(row);
     if (!match) throw new Error("Unsupported candidate file mode.");
     const path = match[3];

@@ -115,7 +115,9 @@ and publishes separate `Tabellio / provenance review` and
 `tabellio-provenance-status-approval/v0.1` with `id`, `intentDigest`, `approved: true`,
 `approvedBy`, `approvedAt`, `expiresAt`, and `reason`; its lifetime is at most one
 hour. Publication receipts report delivery separately from review verdicts.
-Each approval is reserved in `refs/tabellio/provenance-statuses` before delivery;
+Each intent explicitly targets the configured `control` remote. Each approval is
+reserved there in `refs/tabellio/provenance-status-reservations/<approval digest>` before
+GitHub delivery. Remote compare-and-swap allows one publisher across clones;
 repeated requests reuse the receipt, and uncertain attempts require inspection
 before a new approval. The local demo exercises this flow through a fake GitHub
 transport and compares the delivered states with the CLI result.

@@ -14,6 +14,8 @@ function approval(intent, id = "test-status") {
 async function setup(t, change = () => {}) {
   const fixture = await createFeatureFixture(t);
   const repo = fixture.seed;
+  await runGit({ cwd: repo, args: ["remote", "add", "control", fixture.bare] });
+  await runGit({ cwd: repo, args: ["update-ref", "refs/tabellio/provenance-statuses", "HEAD"] });
   await runGit({ cwd: repo, args: ["remote", "set-url", "origin", "https://github.com/example/tabellio.git"] });
   const candidate = await captureCandidate({ repo, projectKey: "SAMPLE", repositoryId: "github.com/example/tabellio" });
   const observations = sampleObservations(candidate);
@@ -22,7 +24,7 @@ async function setup(t, change = () => {}) {
   const intent = createProvenanceStatusIntent(lineage, { now });
   const calls = [];
   const publisher = { publish: async (request) => { calls.push(request); return { ...request, id: calls.length }; } };
-  return { repo, lineage, intent, now, publisher, calls, approval: approval(intent) };
+  return { repo, lineage, intent, now, publisher, calls, approval: approval(intent), control: fixture.bare };
 }
 
 test("published GitHub statuses match the CLI intent and approval replay sends nothing", async (t) => {
@@ -110,4 +112,28 @@ test("concurrent consumers cannot publish twice under one approval", async (t) =
   const results = await Promise.allSettled([publishProvenanceStatuses(input), publishProvenanceStatuses(input)]);
   assert.ok(results.some((item) => item.status === "fulfilled" && item.value.status === "published"));
   assert.equal(input.calls.length, 2);
+});
+
+
+test("shared control reservation prevents duplicate delivery across independent clones", async (t) => {
+  const input = await setup(t);
+  const second = input.repo + "-second";
+  await runGit({ cwd: input.repo, args: ["clone", input.repo, second] });
+  await runGit({ cwd: second, args: ["branch", "main", "origin/main"] });
+  await runGit({ cwd: second, args: ["remote", "set-url", "origin", "https://github.com/example/tabellio.git"] });
+  await runGit({ cwd: second, args: ["remote", "add", "control", input.control] });
+  const outcomes = await Promise.allSettled([publishProvenanceStatuses(input), publishProvenanceStatuses({ ...input, repo: second })]);
+  assert.ok(outcomes.some(outcome => outcome.status === "fulfilled" && outcome.value.status === "published"));
+  assert.equal(input.calls.length, 2);
+  const replay = await publishProvenanceStatuses({ ...input, repo: second });
+  assert.equal(replay.status, "published");
+  assert.equal(input.calls.length, 2);
+});
+
+
+test("missing shared control remote prevents all GitHub writes", async (t) => {
+  const input = await setup(t);
+  await runGit({ cwd: input.repo, args: ["remote", "remove", "control"] });
+  await assert.rejects(publishProvenanceStatuses(input));
+  assert.equal(input.calls.length, 0);
 });

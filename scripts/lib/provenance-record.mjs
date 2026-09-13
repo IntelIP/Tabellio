@@ -112,11 +112,11 @@ function canonicalField(key, value, path, state, depth) {
     if (normalizedKey === "checkpoint_id") {
       state.hasCheckpointReference = true;
       if (optionalCheckpointId(value[key]) === null) {
-        throw new Error(`record.payload checkpoint reference at ${path}.${key} must be a valid ID.`);
+        throw new Error("record.payload checkpoint reference must be a valid ID.");
       }
     }
-    if (FORBIDDEN_PAYLOAD_KEYS.test(normalizedKey)) throw new Error(`record.payload contains a forbidden field at ${path}.${key}.`);
-    if (!APPROVED_PAYLOAD_KEYS.has(normalizedKey)) throw new Error(`record.payload contains an unapproved field at ${path}.${key}.`);
+    if (FORBIDDEN_PAYLOAD_KEYS.test(normalizedKey)) throw new Error("record.payload contains a forbidden field.");
+    if (!APPROVED_PAYLOAD_KEYS.has(normalizedKey)) throw new Error("record.payload contains an unapproved field.");
     return `${JSON.stringify(key)}:${canonicalJson(value[key], `${path}.${key}`, state, depth + 1)}`;
 }
 

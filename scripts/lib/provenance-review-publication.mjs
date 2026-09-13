@@ -1,3 +1,4 @@
+import { runGit } from "./git-process.mjs";
 import { contract } from "./contract-checks.mjs";
 import { digestObject } from "./stack-operation.mjs";
 import { validateOperationApproval } from "./approval-validation.mjs";
@@ -13,14 +14,15 @@ const APPROVAL = "tabellio-provenance-status-approval/v0.1";
 export function createProvenanceStatusIntent(lineage, options) {
   const result = buildProvenanceReviewResult(lineage, options);
   if (result.github.length !== 2) throw new Error("A GitHub repository identity is required.");
-  const unsigned = { schemaVersion: INTENT, createdAt: result.evaluatedAt, candidate: result.currentCandidate, lineageDigest: lineage.digest, reportUrl: options.reportUrl ?? null, statuses: result.github };
+  const unsigned = { schemaVersion: INTENT, createdAt: result.evaluatedAt, candidate: result.currentCandidate, lineageDigest: lineage.digest, reportUrl: options.reportUrl ?? null, reservationRemote: "control", statuses: result.github };
   return { ...unsigned, integrity: { algorithm: "sha256", digest: digestObject(unsigned) } };
 }
 
 function validateIntent(value) {
   contract.object(value, "intent");
-  contract.exactKeys(value, ["schemaVersion", "createdAt", "candidate", "lineageDigest", "reportUrl", "statuses", "integrity"], "intent");
+  contract.exactKeys(value, ["schemaVersion", "createdAt", "candidate", "lineageDigest", "reportUrl", "reservationRemote", "statuses", "integrity"], "intent");
   contract.equals(value.schemaVersion, INTENT, "intent.schemaVersion");
+  contract.equals(value.reservationRemote, "control", "intent.reservationRemote");
   contract.date(value.createdAt, "intent.createdAt");
   contract.sha256(value.lineageDigest, "intent.lineageDigest");
   contract.equals(digestObject(value.candidate), digestObject(candidateIdentity(value.candidate)), "intent.candidate");
@@ -70,19 +72,36 @@ export async function publishProvenanceStatuses({ repo, lineage, intent, approva
   const remote = await effectiveGitHubRepository(store, "origin");
   const target = `${intent.statuses[0].owner}/${intent.statuses[0].repo}`.toLowerCase();
   contract.equals(remote.key, target, "GitHub origin identity");
-  const ledger = await GitJsonLedger.open({ repoPath: repo, ref: "refs/tabellio/provenance-statuses" });
-  const path = `approvals/${approval.id}.json`;
-  const prior = await ledger.read(path);
+  const ref = `refs/tabellio/provenance-status-reservations/${digestObject({ approvalId: approval.id })}`;
+  const ledger = await GitJsonLedger.open({ repoPath: repo, ref });
+  const path = "receipt.json";
+  const remoteVersion = (await runGit({ cwd: repo, args: ["ls-remote", "--refs", intent.reservationRemote, ref] })).stdout.trim().split(/\s+/)[0];
+  let prior = await ledger.read(path);
+  if (remoteVersion) {
+    await runGit({ cwd: repo, args: ["fetch", "--no-write-fetch-head", intent.reservationRemote, ref] });
+    const stored = await runGit({ cwd: repo, args: ["show", `${remoteVersion}:${path}`] });
+    prior = { value: JSON.parse(stored.stdout), version: remoteVersion };
+  }
   if (prior.value !== null) {
     contract.equals(prior.value.intentDigest, intent.integrity.digest, "used approval intent");
     if (prior.value.status !== "pending") return prior.value;
     return { ...prior.value, status: "blocked", reason: "An earlier attempt is unresolved. Inspect GitHub before authorizing another attempt." };
   }
-  // Reserve the approval before any network mutation. CAS prevents concurrent
-  // consumers and preserves an uncertain attempt if the process stops midway.
+  // Remote CAS reserves one publisher across clones before GitHub delivery.
+  // A local pending receipt also prevents retry after an uncertain Git push.
   const receipt = { schemaVersion: "tabellio-provenance-status-receipt/v0.1", approvalId: approval.id, intentDigest: intent.integrity.digest, candidateId: candidate.id, attemptedAt: now, status: "pending", published: [] };
   const attempt = await ledger.write(path, receipt, { expectedVersion: prior.version });
+  try {
+    await runGit({ cwd: repo, args: ["push", `--force-with-lease=${ref}:`, intent.reservationRemote, `${attempt.version}:${ref}`] });
+  } catch {
+    throw new Error("Approval reservation failed or is uncertain. Inspect the control remote before a new approval.");
+  }
   const completed = { ...receipt, ...await sendStatuses({ repo, intent, base, head, publisher }) };
-  await ledger.write(path, completed, { expectedVersion: attempt.version });
+  const finished = await ledger.write(path, completed, { expectedVersion: attempt.version });
+  try {
+    await runGit({ cwd: repo, args: ["push", `--force-with-lease=${ref}:${attempt.version}`, intent.reservationRemote, `${finished.version}:${ref}`] });
+  } catch {
+    return { ...completed, status: "blocked", reason: "Delivery receipt synchronization is uncertain. Inspect GitHub and the control remote; do not retry." };
+  }
   return completed;
 }

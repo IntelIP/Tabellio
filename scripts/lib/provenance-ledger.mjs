@@ -101,7 +101,10 @@ export function evaluateLineage(lineage, { candidate: current = lineage.candidat
   if (!Number.isFinite(evaluatedAt) || !Number.isFinite(maxAgeMs) || maxAgeMs < 0) throw new Error("Evaluation needs a valid time and freshness limit.");
   const reasons = [];
   const add = (state, kind, message, evidenceId = null) => reasons.push({ state, kind, message, evidenceId });
-  if (candidateIdentity(current).id !== verified.candidate.id) add("stale", "candidate", "Base, head, merge base, or scope changed; capture fresh evidence.");
+  if (candidateIdentity(current).id !== verified.candidate.id) {
+    add("stale", "candidate", "Base, head, merge base, or scope changed; capture fresh evidence.");
+    return { schemaVersion: "tabellio-lineage-result/v0.1", candidate: verified.candidate, currentCandidate: candidateIdentity(current), lineageDigest: verified.digest, evaluatedAt: new Date(evaluatedAt).toISOString(), status: "blocked", reasons };
+  }
   const identities = groupObservations(verified.observations);
   for (const versions of identities.values()) {
     if (versions.length > 1) add("conflicting", versions[0].kind, "Multiple observations claim the same source identity; reconcile source versions.", versions[0].id);

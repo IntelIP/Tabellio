@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -85,4 +85,25 @@ test("malformed dependency manifests cannot produce a dependency pass", async ()
       assert.equal(result.checks.find((item) => item.category === "dependencies").status, "blocked");
     });
   }
+});
+
+
+test("invalid UTF-8 tree paths cannot collapse into one scanned file", async () => {
+  await withCandidate({ "app.mjs": "export const answer = 42;" }, async (input) => {
+    const gitInput = (args, data) => {
+      const result = spawnSync("git", ["-c", "user.name=Sample", "-c", "user.email=sample@example.invalid", ...args], { cwd: input.repo, input: data });
+      assert.equal(result.status, 0, result.stderr.toString());
+      return result.stdout;
+    };
+    const rows = [gitInput(["ls-tree", "-z", "HEAD"])];
+    for (const byte of [0x80, 0x81]) {
+      const blob = gitInput(["hash-object", "-w", "--stdin"], byte === 0x80 ? "eval(untrusted);" : "export const safe = true;").toString().trim();
+      rows.push(Buffer.concat([Buffer.from(`100644 blob ${blob}\tbad-`), Buffer.from([byte]), Buffer.from(".js\0")]));
+    }
+    const tree = gitInput(["mktree", "-z"], Buffer.concat(rows)).toString().trim();
+    const commit = gitInput(["commit-tree", tree, "-p", "HEAD"], "Invalid path bytes\n").toString().trim();
+    gitInput(["update-ref", "HEAD", commit]);
+    const current = await captureCandidate({ repo: input.repo, projectKey: "SAMPLE", repositoryId: "sample/repository" });
+    await assert.rejects(scanCandidateSecurity({ ...input, lineage: assembleLineage({ candidate: current, observations: [] }) }), /encoded data|encoding/i);
+  });
 });

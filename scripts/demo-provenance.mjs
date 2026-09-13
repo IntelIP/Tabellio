@@ -65,6 +65,9 @@ try {
   const git = (...args) => run("git", ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], repo);
   await git("init", "-b", "main");
   await git("remote", "add", "origin", "https://github.com/sample/repository.git");
+  const control = join(repo, "..", "control.git");
+  await git("init", "--bare", control);
+  await git("remote", "add", "control", control);
   await writeFile(join(repo, "app.mjs"), "export const greeting = 'Hello';\n");
   await git("add", "app.mjs");
   await git("commit", "-m", "Create sample application");

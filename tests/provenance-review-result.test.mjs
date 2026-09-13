@@ -99,3 +99,16 @@ test("verified security findings link to the reviewed file without source excerp
   assert.throws(() => result(secured, { securityReceipt: receipt, policyDigest: "f".repeat(64) }));
   assert.throws(() => result(secured, { securityReceipt: { ...receipt, status: "passed" }, policyDigest }));
 });
+
+
+test("moved candidates never inherit failed evidence", () => {
+  for (const kind of ["review", "validation", "security"]) {
+    const items = observations();
+    items.find(item => item.kind === kind).status = "failed";
+    const current = candidateIdentity({ ...candidate, headCommit: "c".repeat(40) });
+    const value = result(lineage(items), { candidate: current });
+    assert.equal(value.status, "blocked");
+    assert.deepEqual(value.github.map(item => item.state), ["error", "error"]);
+    assert.deepEqual(value.evidence, []);
+  }
+});
