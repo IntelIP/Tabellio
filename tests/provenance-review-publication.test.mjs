@@ -123,14 +123,36 @@ test("concurrent consumers cannot publish twice under one approval", async (t) =
 });
 
 
-test("shared control reservation prevents duplicate delivery across independent clones", async (t) => {
+test("shared control reservation prevents duplicate delivery across independent clones", { timeout: 20000 }, async (t) => {
   const input = await setup(t);
+  for (const key of ["GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE"]) {
+    const before = process.env[key];
+    process.env[key] = "2026-09-12T12:00:00Z";
+    t.after(() => { if (before === undefined) delete process.env[key]; else process.env[key] = before; });
+  }
   const second = input.repo + "-second";
   await runGit({ cwd: input.repo, args: ["clone", input.repo, second] });
   await runGit({ cwd: second, args: ["branch", "main", "origin/main"] });
   await runGit({ cwd: second, args: ["remote", "set-url", "origin", "https://github.com/example/tabellio.git"] });
   await runGit({ cwd: second, args: ["remote", "add", "control", input.control] });
+  const verifier = input.controlVerifier;
+  const callsByClone = new Map();
+  let waiting = 0, release;
+  const barrier = new Promise(resolve => { release = resolve; });
+  input.controlVerifier = async options => {
+    const result = await verifier(options);
+    const count = (callsByClone.get(options.repo) ?? 0) + 1;
+    callsByClone.set(options.repo, count);
+    if (count === 2) {
+      if (++waiting === 2) release();
+      await barrier;
+    }
+    return result;
+  };
   const outcomes = await Promise.allSettled([publishProvenanceStatuses(input), publishProvenanceStatuses({ ...input, repo: second })]);
+  const ref = `refs/tabellio/provenance-status-reservations/${digestObject({ approvalId: input.approval.id })}`;
+  const localReceipts = await Promise.all([input.repo, second].map(async repoPath => (await (await GitJsonLedger.open({ repoPath, ref })).read("receipt.json")).value));
+  assert.notEqual(localReceipts[0].reservationId, localReceipts[1].reservationId);
   assert.ok(outcomes.some(outcome => outcome.status === "fulfilled" && outcome.value.status === "published"));
   assert.equal(input.calls.length, 2);
   const replay = await publishProvenanceStatuses({ ...input, repo: second });
@@ -164,6 +186,7 @@ test("shared receipts validate complete approval and status bindings", async (t)
   for (const mutate of [
     value => { value.schemaVersion = "unknown"; },
     value => { value.approvalId = "other"; },
+    value => { value.reservationId = "invalid"; },
     value => { value.candidateId = "a".repeat(64); },
     value => { value.published.pop(); },
     value => { value.published[0].commit = "a".repeat(40); },

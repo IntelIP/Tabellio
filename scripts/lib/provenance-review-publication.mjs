@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { runExternalCommand } from "./external-command.mjs";
 import { runGit } from "./git-process.mjs";
 import { contract } from "./contract-checks.mjs";
@@ -65,9 +66,11 @@ async function sendStatuses({ repo, intent, base, head, publisher }) {
 function validateStoredReceipt(receipt, intent, approval, now) {
   contract.object(receipt, "receipt");
   contract.member(receipt.status, ["pending", "blocked", "published"], "receipt.status");
-  contract.exactKeys(receipt, ["schemaVersion", "approvalId", "intentDigest", "candidateId", "attemptedAt", "status", "published", ...(receipt.status === "blocked" ? ["reason"] : [])], "receipt");
+  contract.exactKeys(receipt, ["schemaVersion", "approvalId", "reservationId", "intentDigest", "candidateId", "attemptedAt", "status", "published", ...(receipt.status === "blocked" ? ["reason"] : [])], "receipt");
   contract.equals(receipt.schemaVersion, "tabellio-provenance-status-receipt/v0.1", "receipt.schemaVersion");
   contract.equals(receipt.approvalId, approval.id, "receipt.approvalId");
+  contract.string(receipt.reservationId, "receipt.reservationId");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(receipt.reservationId)) throw new Error("Invalid receipt reservation ID.");
   contract.equals(receipt.intentDigest, intent.integrity.digest, "receipt.intentDigest");
   contract.equals(receipt.candidateId, intent.candidate.id, "receipt.candidateId");
   contract.date(receipt.attemptedAt, "receipt.attemptedAt");
@@ -129,7 +132,7 @@ export async function publishProvenanceStatuses({ repo, lineage, intent, approva
   }
   // Remote CAS reserves one publisher across clones before GitHub delivery.
   // A local pending receipt also prevents retry after an uncertain Git push.
-  const receipt = { schemaVersion: "tabellio-provenance-status-receipt/v0.1", approvalId: approval.id, intentDigest: intent.integrity.digest, candidateId: candidate.id, attemptedAt: now, status: "pending", published: [] };
+  const receipt = { schemaVersion: "tabellio-provenance-status-receipt/v0.1", approvalId: approval.id, reservationId: randomUUID(), intentDigest: intent.integrity.digest, candidateId: candidate.id, attemptedAt: now, status: "pending", published: [] };
   const attempt = await ledger.write(path, receipt, { expectedVersion: prior.version });
   try {
     contract.equals(await controlVerifier({ repo, remote: intent.reservationRemote }), controlKey, "control repository before push");
