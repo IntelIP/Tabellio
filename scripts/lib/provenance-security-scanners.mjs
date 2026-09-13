@@ -74,7 +74,7 @@ async function scanSecrets(context, input) {
   const ignore = join(root, "gitleaks.ignore");
   await writeFile(config, "[extend]\nuseDefault = true\n", { mode: 0o600 });
   await writeFile(ignore, "", { mode: 0o600 });
-  const result = await execute(gitleaks, ["dir", directory, "--config", config, "--gitleaks-ignore-path", ignore, "--report-format", "json", "--report-path", "/dev/stdout", "--redact=100", "--ignore-gitleaks-allow", "--no-banner"], { signal: input.signal, cwd: root });
+  const result = await execute(gitleaks, ["dir", directory, "--config", config, "--gitleaks-ignore-path", ignore, "--report-format", "json", "--report-path", "-", "--redact=100", "--ignore-gitleaks-allow", "--no-banner"], { signal: input.signal, cwd: root });
   const findings = JSON.parse(result.stdout);
   if (!Array.isArray(findings) || findings.length > 64 || (result.exitCode === 1 && findings.length === 0)) throw new Error("Incomplete or oversized secret scan.");
   return { ...input, status: findings.length ? "failed" : "passed", findings: findings.map((item) => locatedFinding(files, directory, item.File, item.StartLine, item.RuleID, "critical")) };
