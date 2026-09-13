@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { normalizeRecord, boundedText, requiredString } from "./provenance-record.mjs";
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -263,11 +264,15 @@ function recordJsonProjection(tableName, whereClause = "") {
 
 function parseRecordOutput(output) {
   if (output === "") return null;
-  try {
-    return JSON.parse(output);
-  } catch (error) {
-    throw new Error(`Local PostgreSQL returned invalid record JSON: ${error.message}`);
-  }
+  let record;
+  try { record = JSON.parse(output); }
+  catch { throw new Error("Local PostgreSQL returned invalid record JSON."); }
+  const { payloadJson, ...normalized } = normalizeRecord(record);
+  const canonicalStored = Object.fromEntries(Object.keys(normalized).map(key => [key, record[key]]));
+  // PostgreSQL formats timestamps with six decimal places; compare instants.
+  canonicalStored.observedAt = normalized.observedAt;
+  if (!isDeepStrictEqual(normalized, canonicalStored)) throw new Error("Stored record integrity mismatch.");
+  return record;
 }
 
 

@@ -417,3 +417,18 @@ test("valid lineages above two MiB remain readable after persistence", { skip: !
   const reconnected = new LocalProvenanceStore({ databaseUrl: testDatabaseUrl(name) });
   assert.deepEqual(await reconnected.getLineage({ digest: lineage.digest, projectKey: candidate.projectKey, repositoryId: candidate.repositoryId }), lineage);
 });
+
+
+test("sparse payload arrays are rejected before canonicalization", () => {
+  for (const refs of [Array(1), [, "valid"], ["valid", ,]]) assert.throws(() => normalizeRecord({ ...syntheticRecord(), payload: { refs } }), /sparse arrays/);
+});
+
+test("stored record corruption is rejected on read", { skip: !postgresAvailable }, async (t) => {
+  const name = await createTestDatabase(t);
+  const store = new LocalProvenanceStore({ databaseUrl: testDatabaseUrl(name) });
+  await store.migrate();
+  const record = syntheticRecord();
+  await store.putRecord(record);
+  await adminCommand("psql", ["--dbname", name, "--command", "UPDATE tabellio_records SET payload = '{\"note\":\"altered\"}'::jsonb"]);
+  await assert.rejects(store.getRecord({ source: record.source, sourceId: record.sourceId }), /integrity mismatch/);
+});

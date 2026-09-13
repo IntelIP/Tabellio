@@ -107,3 +107,28 @@ test("invalid UTF-8 tree paths cannot collapse into one scanned file", async () 
     await assert.rejects(scanCandidateSecurity({ ...input, lineage: assembleLineage({ candidate: current, observations: [] }) }), /encoded data|encoding/i);
   });
 });
+
+
+test("non-object package manifests block dependency review", async () => {
+  for (const manifest of [[], null, true, "manifest"]) {
+    await withCandidate({ "package.json": JSON.stringify(manifest) }, async input => {
+      const review = await scanCandidateSecurity(input);
+      assert.equal(review.checks.find(check => check.category === "dependencies").status, "blocked");
+    });
+  }
+});
+
+
+test("oversized secret reports block without loading unbounded report files", async () => {
+  await withCandidate({ "app.mjs": "export const safe = true;" }, async input => {
+    const scanner = join(input.repo, "synthetic-scanner");
+    const script = `#!${process.execPath}
+if (process.argv[2] === "version") { console.log("8.30.1"); }
+else { process.stdout.write(JSON.stringify([{ marker: "x".repeat(5 * 1024 * 1024) }])); }
+`;
+    await writeFile(scanner, script, { mode: 0o700 });
+    const review = await scanCandidateSecurity({ ...input, gitleaks: scanner });
+    assert.equal(review.checks.find(check => check.category === "secrets").status, "blocked");
+    assert.ok(JSON.stringify(review).length < 65536);
+  });
+});

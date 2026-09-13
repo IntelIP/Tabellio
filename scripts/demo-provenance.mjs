@@ -271,7 +271,15 @@ async function publishSampleStatuses({ repo, lineage, intent, cli, now }) {
     return new Response(JSON.stringify({ ...body, id: requests.length, created_at: now }), { status: 201 });
   } });
   const approval = { schemaVersion: "tabellio-provenance-status-approval/v0.1", id: "sample-review-status", intentDigest: intent.integrity.digest, approved: true, approvedBy: "Synthetic demo", approvedAt: now, expiresAt: new Date(Date.parse(now) + 60000).toISOString(), reason: "Local fake GitHub transport only." };
-  const publication = await publishProvenanceStatuses({ repo, lineage, intent, approval, publisher, now });
+  const controlVerifier = async () => {
+    const expected = join(repo, "..", "control.git");
+    for (const mode of [[], ["--push"]]) {
+      const actual = await execute("git", ["remote", "get-url", ...mode, "control"], { cwd: repo });
+      if (actual.stdout.trim() !== expected) throw new Error("Sample control transport changed.");
+    }
+    return expected;
+  };
+  const publication = await publishProvenanceStatuses({ repo, lineage, intent, approval, publisher, now, controlVerifier });
   if (publication.status !== "published" || requests.length !== 2) throw new Error("Sample status publication failed.");
   for (const [index, request] of requests.entries()) {
     const expected = cli.github[index];

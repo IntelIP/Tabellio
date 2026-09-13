@@ -72,12 +72,11 @@ async function scanSecrets(context, input) {
   if (version.exitCode !== 0 || version.stdout.trim() !== POLICY.gitleaksVersion) throw new Error("Unexpected secret scanner version.");
   const config = join(root, "gitleaks.toml");
   const ignore = join(root, "gitleaks.ignore");
-  const report = join(root, "secrets.json");
   await writeFile(config, "[extend]\nuseDefault = true\n", { mode: 0o600 });
   await writeFile(ignore, "", { mode: 0o600 });
-  const result = await execute(gitleaks, ["dir", directory, "--config", config, "--gitleaks-ignore-path", ignore, "--report-format", "json", "--report-path", report, "--redact=100", "--ignore-gitleaks-allow", "--no-banner"], { signal: input.signal, cwd: root });
-  const findings = JSON.parse(await readFile(report, "utf8"));
-  if (!Array.isArray(findings) || (result.exitCode === 1 && findings.length === 0)) throw new Error("Incomplete secret scan.");
+  const result = await execute(gitleaks, ["dir", directory, "--config", config, "--gitleaks-ignore-path", ignore, "--report-format", "json", "--report-path", "/dev/stdout", "--redact=100", "--ignore-gitleaks-allow", "--no-banner"], { signal: input.signal, cwd: root });
+  const findings = JSON.parse(result.stdout);
+  if (!Array.isArray(findings) || findings.length > 64 || (result.exitCode === 1 && findings.length === 0)) throw new Error("Incomplete or oversized secret scan.");
   return { ...input, status: findings.length ? "failed" : "passed", findings: findings.map((item) => locatedFinding(files, directory, item.File, item.StartLine, item.RuleID, "critical")) };
 }
 
@@ -100,6 +99,7 @@ async function scanSyntax(context, input, category) {
 
 function dependencyVersions(bytes) {
   const manifest = JSON.parse(bytes.toString("utf8"));
+  if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) throw new Error("Malformed package manifest.");
   return ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].flatMap((key) => dependencyGroup(manifest, key));
 }
 

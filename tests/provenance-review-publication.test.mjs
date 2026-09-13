@@ -4,7 +4,7 @@ import test from "node:test";
 import { createFeatureFixture } from "./helpers/git-fixture.mjs";
 import { runGit } from "../scripts/lib/git-process.mjs";
 import { assembleLineage, captureCandidate } from "../scripts/lib/provenance-ledger.mjs";
-import { createProvenanceStatusIntent, publishProvenanceStatuses } from "../scripts/lib/provenance-review-publication.mjs";
+import { createProvenanceStatusIntent, publishProvenanceStatuses, verifyPrivateControl } from "../scripts/lib/provenance-review-publication.mjs";
 import { sampleObservations } from "../examples/provenance/sample.mjs";
 import { digestObject } from "../scripts/lib/stack-operation.mjs";
 
@@ -25,7 +25,14 @@ async function setup(t, change = () => {}) {
   const intent = createProvenanceStatusIntent(lineage, { now });
   const calls = [];
   const publisher = { publish: async (request) => { calls.push(request); return { ...request, id: calls.length }; } };
-  return { repo, lineage, intent, now, publisher, calls, approval: approval(intent), control: fixture.bare };
+  const controlVerifier = async ({ repo: path }) => {
+    for (const mode of [[], ["--push"]]) {
+      const url = await runGit({ cwd: path, args: ["remote", "get-url", ...mode, "control"] });
+      assert.equal(url.stdout.trim(), fixture.bare);
+    }
+    return "synthetic-private-control";
+  };
+  return { repo, lineage, intent, now, publisher, calls, approval: approval(intent), control: fixture.bare, controlVerifier };
 }
 
 test("published GitHub statuses match the CLI intent and approval replay sends nothing", async (t) => {
@@ -175,4 +182,29 @@ test("shared receipts validate complete approval and status bindings", async (t)
     await assert.rejects(publishProvenanceStatuses(input));
     assert.equal(input.calls.length, 2);
   }
+});
+
+
+test("control validation rejects origin aliases, public repositories, and split push URLs", async (t) => {
+  const input = await setup(t);
+  const setControl = url => runGit({ cwd: input.repo, args: ["remote", "set-url", "control", url] });
+  const metadata = async () => ({ stdout: JSON.stringify({ nameWithOwner: "example/control", isPrivate: true }) });
+  await setControl("https://github.com/example/tabellio.git");
+  await assert.rejects(verifyPrivateControl({ repo: input.repo, commandRunner: metadata }), /separate/);
+  await setControl("https://github.com/example/control.git");
+  await assert.rejects(verifyPrivateControl({ repo: input.repo, commandRunner: async () => ({ stdout: JSON.stringify({ nameWithOwner: "example/control", isPrivate: false }) }) }), /private visibility/);
+  await assert.rejects(verifyPrivateControl({ repo: input.repo, commandRunner: async () => ({ stdout: JSON.stringify({ nameWithOwner: "example/other", isPrivate: true }) }) }), /identity/);
+  assert.equal(await verifyPrivateControl({ repo: input.repo, commandRunner: metadata }), "example/control");
+  await runGit({ cwd: input.repo, args: ["remote", "set-url", "--push", "control", "https://github.com/example/public.git"] });
+  await assert.rejects(verifyPrivateControl({ repo: input.repo, commandRunner: metadata }), /different/);
+  assert.equal(input.calls.length, 0);
+});
+
+test("changed control identity stops reservation before any GitHub write", async (t) => {
+  const input = await setup(t);
+  let reads = 0;
+  await assert.rejects(publishProvenanceStatuses({ ...input, controlVerifier: async () => ++reads === 1 ? "private/original" : "private/changed" }), /reservation failed/);
+  assert.equal(input.calls.length, 0);
+  const refs = await runGit({ cwd: input.repo, args: ["ls-remote", "--refs", "control", "refs/tabellio/provenance-status-reservations/*"] });
+  assert.equal(refs.stdout, "");
 });

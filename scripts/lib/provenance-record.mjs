@@ -83,13 +83,17 @@ function canonicalJson(value, path = "$", state = { nodes: 0, hasCheckpointRefer
     if (!Number.isFinite(value)) throw new Error(`${path} must not contain a non-finite number.`);
     return JSON.stringify(value);
   }
-  if (Array.isArray(value)) {
-    if (depth >= MAX_PAYLOAD_DEPTH) throw new Error(`record.payload exceeds depth ${MAX_PAYLOAD_DEPTH}.`);
-    return `[${value.map((item, index) => canonicalJson(item, `${path}[${index}]`, state, depth + 1)).join(",")}]`;
-  }
+  if (Array.isArray(value)) return canonicalArray(value, path, state, depth);
   if (!isPlainObject(value)) throw new Error(`${path} must contain only JSON values.`);
   if (depth >= MAX_PAYLOAD_DEPTH) throw new Error(`record.payload exceeds depth ${MAX_PAYLOAD_DEPTH}.`);
   return canonicalObject(value, path, state, depth);
+}
+
+function canonicalArray(value, path, state, depth) {
+  if (value.length > MAX_PAYLOAD_NODES) throw new Error(`record.payload exceeds ${MAX_PAYLOAD_NODES} values.`);
+  for (let index = 0; index < value.length; index += 1) if (!Object.hasOwn(value, index)) throw new Error("record.payload must not contain sparse arrays.");
+  if (depth >= MAX_PAYLOAD_DEPTH) throw new Error(`record.payload exceeds depth ${MAX_PAYLOAD_DEPTH}.`);
+  return `[${value.map((item, index) => canonicalJson(item, `${path}[${index}]`, state, depth + 1)).join(",")}]`;
 }
 
 function validatePayloadText(value, path) {

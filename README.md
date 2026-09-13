@@ -117,7 +117,9 @@ and publishes separate `Tabellio / provenance review` and
 hour. Publication receipts report delivery separately from review verdicts.
 Each intent explicitly targets the configured `control` remote. Each approval is
 reserved there in `refs/tabellio/provenance-status-reservations/<approval digest>` before
-GitHub delivery. Remote compare-and-swap allows one publisher across clones;
+GitHub delivery. Production publication uses authenticated `gh` to verify a
+separate private control repository and consistent fetch/push targets before
+each control write. Remote compare-and-swap allows one publisher across clones;
 repeated requests reuse the receipt, and uncertain attempts require inspection
 before a new approval. The local demo exercises this flow through a fake GitHub
 transport and compares the delivered states with the CLI result.

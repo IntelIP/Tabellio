@@ -1,3 +1,4 @@
+import { runExternalCommand } from "./external-command.mjs";
 import { runGit } from "./git-process.mjs";
 import { contract } from "./contract-checks.mjs";
 import { digestObject } from "./stack-operation.mjs";
@@ -87,7 +88,17 @@ function validateStoredReceipt(receipt, intent, approval, now) {
   return receipt;
 }
 
-export async function publishProvenanceStatuses({ repo, lineage, intent, approval, publisher, now, base = "main", head = "HEAD" }) {
+export async function verifyPrivateControl({ repo, remote = "control", commandRunner = runExternalCommand }) {
+  const store = await NativeGitStore.open(repo);
+  const [origin, control] = await Promise.all([effectiveGitHubRepository(store, "origin"), effectiveGitHubRepository(store, remote)]);
+  if (origin.key === control.key) throw new Error("Control state must use a separate private repository.");
+  const response = await commandRunner({ binary: "gh", args: ["repo", "view", control.fullName, "--json", "nameWithOwner,isPrivate"], cwd: repo, timeoutMs: 30000 });
+  const metadata = JSON.parse(response.stdout);
+  if (metadata.isPrivate !== true || String(metadata.nameWithOwner).toLowerCase() !== control.key) throw new Error("Control repository identity and private visibility must be verified.");
+  return control.key;
+}
+
+export async function publishProvenanceStatuses({ repo, lineage, intent, approval, publisher, now, base = "main", head = "HEAD", controlVerifier = verifyPrivateControl }) {
   contract.date(now, "publication time");
   validateOperationApproval(approval, intent, { schemaVersion: APPROVAL, validateIntent, now: new Date(now) });
   if (Date.parse(approval.expiresAt) - Date.parse(approval.approvedAt) > 3600000) throw new Error("Status approval must expire within one hour.");
@@ -99,6 +110,7 @@ export async function publishProvenanceStatuses({ repo, lineage, intent, approva
   const remote = await effectiveGitHubRepository(store, "origin");
   const target = `${intent.statuses[0].owner}/${intent.statuses[0].repo}`.toLowerCase();
   contract.equals(remote.key, target, "GitHub origin identity");
+  const controlKey = await controlVerifier({ repo, remote: intent.reservationRemote });
   const ref = `refs/tabellio/provenance-status-reservations/${digestObject({ approvalId: approval.id })}`;
   const ledger = await GitJsonLedger.open({ repoPath: repo, ref });
   const path = "receipt.json";
@@ -120,6 +132,7 @@ export async function publishProvenanceStatuses({ repo, lineage, intent, approva
   const receipt = { schemaVersion: "tabellio-provenance-status-receipt/v0.1", approvalId: approval.id, intentDigest: intent.integrity.digest, candidateId: candidate.id, attemptedAt: now, status: "pending", published: [] };
   const attempt = await ledger.write(path, receipt, { expectedVersion: prior.version });
   try {
+    contract.equals(await controlVerifier({ repo, remote: intent.reservationRemote }), controlKey, "control repository before push");
     await runGit({ cwd: repo, args: ["push", `--force-with-lease=${ref}:`, intent.reservationRemote, `${attempt.version}:${ref}`] });
   } catch {
     throw new Error("Approval reservation failed or is uncertain. Inspect the control remote before a new approval.");
@@ -127,6 +140,7 @@ export async function publishProvenanceStatuses({ repo, lineage, intent, approva
   const completed = { ...receipt, ...await sendStatuses({ repo, intent, base, head, publisher }) };
   const finished = await ledger.write(path, completed, { expectedVersion: attempt.version });
   try {
+    contract.equals(await controlVerifier({ repo, remote: intent.reservationRemote }), controlKey, "control repository before push");
     await runGit({ cwd: repo, args: ["push", `--force-with-lease=${ref}:${attempt.version}`, intent.reservationRemote, `${finished.version}:${ref}`] });
   } catch {
     return { ...completed, status: "blocked", reason: "Delivery receipt synchronization is uncertain. Inspect GitHub and the control remote; do not retry." };
