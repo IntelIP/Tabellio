@@ -28,8 +28,7 @@ function canonicalJson(value) {
 function text(value, name) {
   if (typeof value !== "string" || !value.trim() || value.length > 512) throw new Error(`${name} must be bounded nonempty text.`);
   // Reuse the storage boundary, including credential-shaped metadata rejection.
-  normalizeRecord({ entityType: "reference", entityKey: value, source: "tabellio", sourceId: name, observedAt: "2026-01-01T00:00:00Z", sensitivity: "private" });
-  return value;
+  return normalizeRecord({ entityType: "reference", entityKey: value, source: "tabellio", sourceId: name, observedAt: "2026-01-01T00:00:00Z", sensitivity: "private" }).entityKey;
 }
 
 export function candidateIdentity(input) {

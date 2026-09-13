@@ -82,6 +82,7 @@ install -m 755 scripts/tabellio-validator.mjs "$temporary_dir/tabellio-validator
 PATH="$temporary_dir:$PATH" node scripts/tabellio-validate.mjs gate \
   --repo . \
   --repo-id IntelIP/Tabellio \
+  --runner-id "buildkite:${BUILDKITE_BUILD_ID:?Buildkite build ID is required}" \
   --base "$base_ref" \
   --commit HEAD \
   "${checkpoint_args[@]}" \

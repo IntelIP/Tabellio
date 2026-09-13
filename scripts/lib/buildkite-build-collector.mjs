@@ -245,6 +245,7 @@ export function validateBuildkiteBuildSnapshot(snapshot) {
 function assertNormalizedBuild(build, index) {
   contract.object(build, `Buildkite build ${index}`);
   contract.exactKeys(build, [
+    ...(build.id === undefined ? [] : ["id"]),
     "number",
     "commit",
     "state",
@@ -254,6 +255,7 @@ function assertNormalizedBuild(build, index) {
     "artifactCount",
   ], `Buildkite build ${index}`);
   contract.positiveInteger(build.number, `Buildkite build ${index} number`);
+  if (build.id !== undefined) ensure(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(build.id), "Buildkite build ID is invalid.");
   ensure(OID.test(build.commit ?? ""), "Buildkite normalized build identity is invalid.");
   ensure(BUILD_STATES.has(build.state), "Buildkite normalized build identity is invalid.");
   assertDateTime(build.createdAt, `Buildkite build ${index} creation time`);
@@ -302,6 +304,7 @@ function assertPipelineSlug(record, expected) {
 function normalizeBuild(build) {
   contract.object(build, "Buildkite build response");
   const result = {
+    ...(build.id === undefined ? {} : { id: build.id }),
     number: build.number,
     commit: build.commit,
     state: build.state,
@@ -324,7 +327,7 @@ function nullableFinishedAt(value) {
 }
 
 function assertSameBuild(summary, detail) {
-  if (summary.number !== detail.number || summary.commit !== detail.commit) {
+  if (summary.number !== detail.number || summary.commit !== detail.commit || (summary.id !== undefined && summary.id !== detail.id)) {
     throw new Error("Buildkite build detail identity mismatch.");
   }
 }

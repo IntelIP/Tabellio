@@ -33,13 +33,14 @@ test("lineage persists atomically, isolates projects, and replays from original 
   const cli = fileURLToPath(new URL("../scripts/tabellio-local-store.mjs", import.meta.url));
   const migration = JSON.parse((await execFileAsync(process.execPath, [cli, "migrate", "--database-url", databaseUrl])).stdout);
   assert.equal(migration.version, "002_tabellio_lineages");
-  const candidate = candidateIdentity({ projectKey: "SAMPLE", repositoryId: "sample/repository", baseCommit: "a".repeat(40), headCommit: "b".repeat(40), mergeBase: "a".repeat(40) });
+  const candidate = candidateIdentity({ projectKey: " SAMPLE ", repositoryId: " sample/repository ", baseCommit: "a".repeat(40), headCommit: "b".repeat(40), mergeBase: "a".repeat(40) });
   const observations = sampleObservations(candidate);
   const lineage = assembleLineage({ candidate, observations });
   const query = { digest: lineage.digest, projectKey: candidate.projectKey, repositoryId: candidate.repositoryId };
   await store.putLineage(lineage);
   await store.putLineage(assembleLineage({ candidate, observations: [...observations].reverse() }));
   assert.deepEqual(await store.getLineage(query), lineage);
+  assert.deepEqual(await store.getLineage({ ...query, projectKey: " SAMPLE ", repositoryId: " sample/repository " }), lineage);
   assert.equal(await store.getLineage({ ...query, projectKey: "OTHER" }), null);
   const reconnected = new LocalProvenanceStore({ databaseUrl }); await reconnected.migrate();
   assert.deepEqual(await reconnected.getLineage(query), lineage);

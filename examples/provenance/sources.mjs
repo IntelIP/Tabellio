@@ -17,7 +17,7 @@ export async function sampleSourceBundle(candidate, now) {
   validation.revision = { baseCommit: candidate.baseCommit, headCommit: candidate.headCommit, mergeBase: candidate.mergeBase };
   validation.checkpointRevision = { ...validation.revision };
   validation.suite = { id: "sample", manifestPath: "tabellio.validation.json", manifestDigest: selection.manifestDigest };
-  validation.runner = { id: "sample", runtime: "node" };
+  validation.runner = { id: "buildkite:44444444-4444-4444-8444-444444444444", runtime: "node" };
   const { integrity, ...unsigned } = validation;
   integrity.digest = digestObject(unsigned);
   const snapshots = {
@@ -30,7 +30,7 @@ export async function sampleSourceBundle(candidate, now) {
       changeRequest: { number: 1, state: "open", draft: false, source: { commit: candidate.headCommit }, target: { commit: candidate.baseCommit } },
       reviews: [{ id: selection.reviewId, state: "approved", commit: candidate.headCommit, body: `Tabellio-Candidate: ${candidate.id}` }] },
     buildkite: { snapshot: { schemaVersion: "tabellio-buildkite-build-snapshot/v0.1", repository: candidate.repositoryId, organization: "example", pipeline: "tabellio", capturedAt: now, status: "available", reason: null,
-      builds: [{ number: 1, commit: candidate.headCommit, state: "passed", createdAt: "2026-07-10T12:00:00.000Z", finishedAt: "2026-07-10T12:00:01.000Z", jobCount: 1, artifactCount: 1 }] }, validation },
+      builds: [{ id: "44444444-4444-4444-8444-444444444444", number: 1, commit: candidate.headCommit, state: "passed", createdAt: "2026-07-10T12:00:00.000Z", finishedAt: "2026-07-10T12:00:01.000Z", jobCount: 1, artifactCount: 1 }] }, validation },
   };
   return { candidate, selection, snapshots };
 }

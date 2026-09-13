@@ -26,7 +26,7 @@ function finding(input, category) {
 function checkResult(input, category, binding) {
   requireFact(input && input.candidateId === binding.candidateId && input.packetDigest === binding.packetDigest && input.policyDigest === binding.policyDigest);
   requireFact(STATES.has(input.status) && Array.isArray(input.findings) && input.findings.length <= 64);
-  const findings = input.findings.map((item) => finding(item, category)).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  const findings = input.findings.map((item) => finding(item, category)).sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : JSON.stringify(a) > JSON.stringify(b) ? 1 : 0));
   // A scanner cannot override its own reported findings with a green label.
   const status = findings.length ? "failed" : input.status;
   return { category, status, findings };

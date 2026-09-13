@@ -125,6 +125,7 @@ function buildkiteSource(input, context) {
   requireFact(build?.commit === context.candidate.headCommit, "candidate_mismatch");
   validateValidationResult(input.validation);
   const validation = input.validation;
+  requireFact(typeof build.id === "string" && validation.runner.id === `buildkite:${build.id}`, "association_missing");
   requireFact(validation.repository.id === context.candidate.repositoryId, "scope_mismatch");
   const validatedCandidate = candidateIdentity({ ...context.candidate, ...validation.revision });
   requireFact(validatedCandidate.id === context.candidate.id, "candidate_mismatch");

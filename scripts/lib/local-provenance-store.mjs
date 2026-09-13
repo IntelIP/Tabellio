@@ -109,7 +109,8 @@ export class LocalProvenanceStore {
   }
 
   async getLineage(query) {
-    const { projectKey, repositoryId } = query;
+    const projectKey = boundedText(query.projectKey, "projectKey");
+    const repositoryId = boundedText(query.repositoryId, "repositoryId");
     const variables = {};
     const sql = `SELECT envelope::text FROM tabellio_lineages WHERE ${lineageWhere(query, variables)};`;
     const result = await runPsql({ databaseUrl: this.databaseUrl, psqlBinary: this.psqlBinary, sql, variables, tuplesOnly: true });

@@ -3,6 +3,7 @@ import test from "node:test";
 import { assembleLineage, buildReviewPacket, candidateIdentity, evaluateLineage } from "../scripts/lib/provenance-ledger.mjs";
 import { collectProvenanceSources } from "../scripts/lib/provenance-sources.mjs";
 import { sampleSourceBundle } from "../examples/provenance/sources.mjs";
+import { digestObject } from "../scripts/lib/stack-operation.mjs";
 
 const now = "2026-07-10T12:00:02.000Z";
 const candidate = candidateIdentity({ projectKey: "SAMPLE", repositoryId: "example/tabellio", baseCommit: "a".repeat(40), headCommit: "b".repeat(40), mergeBase: "a".repeat(40) });
@@ -108,4 +109,28 @@ test("review packets expose only fixed source failure explanations", async () =>
     assert.ok(safe.reasons.some((reason) => reason.message === "Resolve source evidence before review readiness."));
     assert.ok(!JSON.stringify(safe).includes(untrustedReason));
   }
+});
+
+
+test("Buildkite requires validation bound to the selected immutable build", async () => {
+  for (const id of [undefined, "55555555-5555-4555-8555-555555555555"]) {
+    const snapshots = await fixture();
+    if (id === undefined) delete snapshots.buildkite.snapshot.builds[0].id;
+    else snapshots.buildkite.snapshot.builds[0].id = id;
+    const result = await collect(snapshots);
+    const source = result.sources.find(item => item.source === "buildkite");
+    assert.equal(source.status, "blocked");
+    assert.equal(source.reason, "association_missing");
+  }
+});
+
+
+test("local validation cannot stand in for a Buildkite artifact", async () => {
+  const snapshots = await fixture();
+  const validation = snapshots.buildkite.validation;
+  validation.runner.id = "local";
+  const { integrity, ...unsigned } = validation;
+  integrity.digest = digestObject(unsigned);
+  const result = await collect(snapshots);
+  assert.equal(result.sources.find(item => item.source === "buildkite").reason, "association_missing");
 });

@@ -197,3 +197,8 @@ test("packet byte limit includes integrity digest and rejects one byte beyond th
   unicode.observations.push(...Array.from({ length: 60 }, (_, index) => ({ ...unicode.observations[0], sourceId: `${index}-${"é".repeat(500)}`, metadata: {} })));
   assert.throws(() => buildReviewPacket(assembleLineage(unicode), { now }), /exceeds 65536 bytes/);
 });
+
+
+test("candidate identity retains normalized project and repository text", () => {
+  assert.deepEqual(candidateIdentity({ ...candidate, projectKey: ` ${candidate.projectKey} `, repositoryId: ` ${candidate.repositoryId} ` }), candidate);
+});

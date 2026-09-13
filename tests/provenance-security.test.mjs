@@ -127,3 +127,13 @@ test("security findings schema accepts producer results and rejects private or i
     assert.notDeepEqual(validateJsonSchema(value, schema), []);
   }
 });
+
+
+test("security findings use deterministic code-unit ordering", async () => {
+  const checks = readers();
+  checks.secrets = async (input) => ({ ...input, status: "failed", findings: ["ä.js", "z.js"].map(path => ({ ...evidence(), path })) });
+  const review = await run(checks);
+  assert.equal(review.status, "failed");
+  assert.deepEqual(review.checks.find(item => item.category === "secrets").findings.map(item => item.path), ["z.js", "ä.js"]);
+  assert.equal(evaluateLineage(attach(review), { now }).status, "failed");
+});
