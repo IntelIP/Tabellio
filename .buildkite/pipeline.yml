@@ -1,9 +1,10 @@
 env:
   CI: "1"
   NO_COLOR: "1"
+  MISE_DATA_DIR: "/tmp/tabellio-mise"
 
 agents:
-  queue: "macos-medium"
+  queue: "linux-small"
 
 steps:
   - label: ":git: Supported Git"
@@ -26,7 +27,7 @@ steps:
 
   - label: ":mag: Fallow changed-code"
     key: "fallow"
-    command: "bash .buildkite/scripts/fallow.sh"
+    command: "bash .buildkite/scripts/as-build-user.sh .buildkite/scripts/fallow.sh"
     depends_on: "git-toolchain"
     timeout_in_minutes: 10
     artifact_paths:
@@ -47,7 +48,7 @@ steps:
 
   - label: ":shield: Product validation"
     key: "product-validation"
-    command: "bash .buildkite/scripts/product-validation.sh"
+    command: "bash .buildkite/scripts/as-build-user.sh .buildkite/scripts/product-validation.sh"
     depends_on: "git-toolchain"
     timeout_in_minutes: 50
     artifact_paths:

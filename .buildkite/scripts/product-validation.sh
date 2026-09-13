@@ -15,6 +15,12 @@ if [[ "$pull_request" == "false" && "$build_context" != "preflight" && "$default
 fi
 
 . .buildkite/scripts/verify-git-toolchain.sh
+. .buildkite/scripts/security-tools.sh
+
+postgres_bin="$(pg_config --bindir)"
+test -x "$postgres_bin/initdb"
+test -x "$postgres_bin/pg_ctl"
+export PATH="$postgres_bin:$PATH"
 
 candidate="${BUILDKITE_COMMIT:-HEAD}"
 base_branch="${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-${TABELLIO_BASE_BRANCH:-main}}"
@@ -81,6 +87,7 @@ install -m 755 scripts/tabellio-validator.mjs "$temporary_dir/tabellio-validator
 PATH="$temporary_dir:$PATH" node scripts/tabellio-validate.mjs gate \
   --repo . \
   --repo-id IntelIP/Tabellio \
+  --runner-id "buildkite:${BUILDKITE_BUILD_ID:?Buildkite build ID is required}" \
   --base "$base_ref" \
   --commit HEAD \
   "${checkpoint_args[@]}" \

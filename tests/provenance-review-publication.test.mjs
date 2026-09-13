@@ -1,0 +1,236 @@
+import { GitJsonLedger } from "../scripts/lib/git-json-ledger.mjs";
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createFeatureFixture } from "./helpers/git-fixture.mjs";
+import { runGit } from "../scripts/lib/git-process.mjs";
+import { assembleLineage, captureCandidate } from "../scripts/lib/provenance-ledger.mjs";
+import { createProvenanceStatusIntent, publishProvenanceStatuses, verifyPrivateControl } from "../scripts/lib/provenance-review-publication.mjs";
+import { sampleObservations } from "../examples/provenance/sample.mjs";
+import { digestObject } from "../scripts/lib/stack-operation.mjs";
+
+const now = "2026-09-12T12:00:02Z";
+function approval(intent, id = "test-status") {
+  return { schemaVersion: "tabellio-provenance-status-approval/v0.1", id, intentDigest: intent.integrity.digest, approved: true, approvedBy: "Synthetic test", approvedAt: now, expiresAt: "2026-09-12T12:01:02Z", reason: "Synthetic publisher only." };
+}
+async function setup(t, change = () => {}) {
+  const fixture = await createFeatureFixture(t);
+  const repo = fixture.seed;
+  await runGit({ cwd: repo, args: ["remote", "add", "control", fixture.bare] });
+  await runGit({ cwd: repo, args: ["update-ref", "refs/tabellio/provenance-statuses", "HEAD"] });
+  await runGit({ cwd: repo, args: ["remote", "set-url", "origin", "https://github.com/example/tabellio.git"] });
+  const candidate = await captureCandidate({ repo, projectKey: "SAMPLE", repositoryId: "github.com/example/tabellio" });
+  const observations = sampleObservations(candidate);
+  change(observations);
+  const lineage = assembleLineage({ candidate, observations });
+  const intent = createProvenanceStatusIntent(lineage, { now });
+  const calls = [];
+  const publisher = { publish: async (request) => { calls.push(request); return { ...request, id: calls.length }; } };
+  const controlVerifier = async ({ repo: path }) => {
+    for (const mode of [[], ["--push"]]) {
+      const url = await runGit({ cwd: path, args: ["remote", "get-url", ...mode, "control"] });
+      assert.equal(url.stdout.trim(), fixture.bare);
+    }
+    return "synthetic-private-control";
+  };
+  return { repo, lineage, intent, now, publisher, calls, approval: approval(intent), control: fixture.bare, controlVerifier };
+}
+
+test("published GitHub statuses match the CLI intent and approval replay sends nothing", async (t) => {
+  const input = await setup(t);
+  const first = await publishProvenanceStatuses(input);
+  assert.equal(first.status, "published");
+  assert.deepEqual(input.calls, input.intent.statuses);
+  assert.deepEqual(await publishProvenanceStatuses(input), first);
+  assert.equal(input.calls.length, 2);
+});
+
+test("failed review and blocked security publish distinct non-green states", async (t) => {
+  const input = await setup(t, (items) => {
+    items.find((item) => item.kind === "review").status = "failed";
+    items.find((item) => item.kind === "security").status = "blocked";
+  });
+  const receipt = await publishProvenanceStatuses(input);
+  assert.equal(receipt.status, "published");
+  assert.deepEqual(input.calls.map((item) => item.state), ["failure", "error"]);
+});
+
+test("expired approval, forged green state, and wrong origin are rejected before publication", async (t) => {
+  const input = await setup(t, (items) => { items.find((item) => item.kind === "review").status = "failed"; });
+  await assert.rejects(publishProvenanceStatuses({ ...input, now: "2026-09-12T12:02:00Z" }));
+  const forged = structuredClone(input.intent);
+  forged.statuses[0].state = "success";
+  const { integrity: _integrity, ...unsigned } = forged;
+  forged.integrity.digest = digestObject(unsigned);
+  await assert.rejects(publishProvenanceStatuses({ ...input, intent: forged, approval: approval(forged) }));
+  await runGit({ cwd: input.repo, args: ["remote", "set-url", "origin", "https://github.com/example/other.git"] });
+  await assert.rejects(publishProvenanceStatuses(input));
+  assert.equal(input.calls.length, 0);
+});
+
+test("changed head and stale evidence cannot publish an earlier green result", async (t) => {
+  const input = await setup(t);
+  const later = "2026-09-13T12:00:03Z";
+  const active = { ...input.approval, approvedAt: later, expiresAt: "2026-09-13T12:01:03Z" };
+  await assert.rejects(publishProvenanceStatuses({ ...input, approval: active, now: later }));
+  await runGit({ cwd: input.repo, args: ["switch", "main"] });
+  await assert.rejects(publishProvenanceStatuses(input));
+  assert.equal(input.calls.length, 0);
+});
+
+test("partial provider failure stays blocked and consumed approval never retries", async (t) => {
+  const input = await setup(t);
+  let count = 0;
+  input.publisher = { publish: async (request) => {
+    count += 1;
+    if (count === 2) throw new Error("private provider response");
+    return { ...request, id: count };
+  } };
+  const receipt = await publishProvenanceStatuses(input);
+  assert.equal(receipt.status, "blocked");
+  assert.equal(receipt.published.length, 1);
+  assert.ok(!JSON.stringify(receipt).includes("private provider response"));
+  assert.deepEqual(await publishProvenanceStatuses(input), receipt);
+  assert.equal(count, 2);
+});
+
+test("mismatched provider response cannot upgrade blocked evidence", async (t) => {
+  const input = await setup(t, (items) => { items.find((item) => item.kind === "validation").status = "blocked"; });
+  input.publisher = { publish: async (request) => ({ ...request, id: 1, state: "success" }) };
+  const receipt = await publishProvenanceStatuses(input);
+  assert.equal(receipt.status, "blocked");
+  assert.deepEqual(receipt.published, []);
+});
+
+test("candidate movement between statuses stops the second publication", async (t) => {
+  const input = await setup(t);
+  let count = 0;
+  input.publisher = { publish: async (request) => {
+    count += 1;
+    await runGit({ cwd: input.repo, args: ["switch", "main"] });
+    return { ...request, id: count };
+  } };
+  const receipt = await publishProvenanceStatuses(input);
+  assert.equal(receipt.status, "blocked");
+  assert.equal(count, 1);
+  assert.equal(receipt.published.length, 1);
+});
+
+test("concurrent consumers cannot publish twice under one approval", async (t) => {
+  const input = await setup(t);
+  const results = await Promise.allSettled([publishProvenanceStatuses(input), publishProvenanceStatuses(input)]);
+  assert.ok(results.some((item) => item.status === "fulfilled" && item.value.status === "published"));
+  assert.equal(input.calls.length, 2);
+});
+
+
+test("shared control reservation prevents duplicate delivery across independent clones", { timeout: 20000 }, async (t) => {
+  const input = await setup(t);
+  for (const key of ["GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE"]) {
+    const before = process.env[key];
+    process.env[key] = "2026-09-12T12:00:00Z";
+    t.after(() => { if (before === undefined) delete process.env[key]; else process.env[key] = before; });
+  }
+  const second = input.repo + "-second";
+  await runGit({ cwd: input.repo, args: ["clone", input.repo, second] });
+  await runGit({ cwd: second, args: ["branch", "main", "origin/main"] });
+  await runGit({ cwd: second, args: ["remote", "set-url", "origin", "https://github.com/example/tabellio.git"] });
+  await runGit({ cwd: second, args: ["remote", "add", "control", input.control] });
+  const verifier = input.controlVerifier;
+  const callsByClone = new Map();
+  let waiting = 0, release;
+  const barrier = new Promise(resolve => { release = resolve; });
+  input.controlVerifier = async options => {
+    const result = await verifier(options);
+    const count = (callsByClone.get(options.repo) ?? 0) + 1;
+    callsByClone.set(options.repo, count);
+    if (count === 2) {
+      if (++waiting === 2) release();
+      await barrier;
+    }
+    return result;
+  };
+  const outcomes = await Promise.allSettled([publishProvenanceStatuses(input), publishProvenanceStatuses({ ...input, repo: second })]);
+  const ref = `refs/tabellio/provenance-status-reservations/${digestObject({ approvalId: input.approval.id })}`;
+  const localReceipts = await Promise.all([input.repo, second].map(async repoPath => (await (await GitJsonLedger.open({ repoPath, ref })).read("receipt.json")).value));
+  assert.notEqual(localReceipts[0].reservationId, localReceipts[1].reservationId);
+  assert.ok(outcomes.some(outcome => outcome.status === "fulfilled" && outcome.value.status === "published"));
+  assert.equal(input.calls.length, 2);
+  const replay = await publishProvenanceStatuses({ ...input, repo: second });
+  assert.equal(replay.status, "published");
+  assert.equal(input.calls.length, 2);
+});
+
+
+test("missing shared control remote prevents all GitHub writes", async (t) => {
+  const input = await setup(t);
+  await runGit({ cwd: input.repo, args: ["remote", "remove", "control"] });
+  await assert.rejects(publishProvenanceStatuses(input));
+  assert.equal(input.calls.length, 0);
+});
+
+
+test("malformed cached receipts cannot claim publication", async (t) => {
+  const input = await setup(t);
+  const ref = `refs/tabellio/provenance-status-reservations/${digestObject({ approvalId: input.approval.id })}`;
+  const ledger = await GitJsonLedger.open({ repoPath: input.repo, ref });
+  await ledger.write("receipt.json", { intentDigest: input.intent.integrity.digest, status: "published" }, { expectedVersion: null });
+  await assert.rejects(publishProvenanceStatuses(input));
+  assert.equal(input.calls.length, 0);
+});
+
+test("shared receipts validate complete approval and status bindings", async (t) => {
+  const input = await setup(t);
+  const valid = await publishProvenanceStatuses(input);
+  const ref = `refs/tabellio/provenance-status-reservations/${digestObject({ approvalId: input.approval.id })}`;
+  const ledger = await GitJsonLedger.open({ repoPath: input.repo, ref });
+  for (const mutate of [
+    value => { value.schemaVersion = "unknown"; },
+    value => { value.approvalId = "other"; },
+    value => { value.reservationId = "invalid"; },
+    value => { value.candidateId = "a".repeat(64); },
+    value => { value.published.pop(); },
+    value => { value.published[0].commit = "a".repeat(40); },
+    value => { value.published[0].state = "error"; },
+    value => { value.published[0].context = "unrelated"; },
+    value => { value.published[0].id = "invalid"; },
+    value => { value.published[1].id = value.published[0].id; },
+    value => { value.attemptedAt = "2026-09-12T13:00:00Z"; },
+    value => { value.extra = "untrusted"; },
+  ]) {
+    const corrupted = structuredClone(valid);
+    mutate(corrupted);
+    const before = await ledger.version();
+    const next = await ledger.write("receipt.json", corrupted, { expectedVersion: before });
+    await runGit({ cwd: input.repo, args: ["push", `--force-with-lease=${ref}:${before}`, "control", `${next.version}:${ref}`] });
+    await assert.rejects(publishProvenanceStatuses(input));
+    assert.equal(input.calls.length, 2);
+  }
+});
+
+
+test("control validation rejects origin aliases, public repositories, and split push URLs", async (t) => {
+  const input = await setup(t);
+  const setControl = url => runGit({ cwd: input.repo, args: ["remote", "set-url", "control", url] });
+  const metadata = async ({args}) => {
+    assert.equal(args[2], "https://github.com/example/control");
+    return { stdout: JSON.stringify({ nameWithOwner: "example/control", isPrivate: true }) };
+  };
+  await setControl("https://github.com/example/tabellio.git");
+  await assert.rejects(verifyPrivateControl({ repo: input.repo, commandRunner: metadata }), /separate/);
+  await setControl("https://github.com/example/control.git");
+  await assert.rejects(verifyPrivateControl({ repo: input.repo, commandRunner: async () => ({ stdout: JSON.stringify({ nameWithOwner: "example/control", isPrivate: false }) }) }), /private visibility/);
+  await assert.rejects(verifyPrivateControl({ repo: input.repo, commandRunner: async () => ({ stdout: JSON.stringify({ nameWithOwner: "example/other", isPrivate: true }) }) }), /identity/);
+  assert.equal(await verifyPrivateControl({ repo: input.repo, commandRunner: metadata }), "example/control");
+  await runGit({ cwd: input.repo, args: ["remote", "set-url", "--push", "control", "https://github.com/example/public.git"] });
+  await assert.rejects(verifyPrivateControl({ repo: input.repo, commandRunner: metadata }), /different/);
+  assert.equal(input.calls.length, 0);
+});
+
+test("changed control identity stops reservation before any GitHub write", async (t) => {
+  const input = await setup(t);
+  let reads = 0;
+  await assert.rejects(publishProvenanceStatuses({ ...input, controlVerifier: async () => ++reads === 1 ? "private/original" : "private/changed" }), /reservation failed/);
+  assert.equal(input.calls.length, 0);
+  const refs = await runGit({ cwd: input.repo, args: ["ls-remote", "--refs", "control", "refs/tabellio/provenance-status-reservations/*"] });
+  assert.equal(refs.stdout, "");
+});

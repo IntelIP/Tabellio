@@ -1,0 +1,146 @@
+#!/usr/bin/env node
+import { readFile } from "node:fs/promises";
+import { parseCommandOptions, requireOptions, writeJsonOutput } from "./lib/cli-options.mjs";
+import { LocalProvenanceStore } from "./lib/local-provenance-store.mjs";
+import { assembleLineage, buildReviewPacket, captureCandidate, verifyLineage } from "./lib/provenance-ledger.mjs";
+import { captureGitSource, collectProvenanceSources } from "./lib/provenance-sources.mjs";
+import { attachSecurityReview } from "./lib/provenance-security.mjs";
+import { scanCandidateSecurity } from "./lib/provenance-security-scanners.mjs";
+import { buildProvenanceReviewResult } from "./lib/provenance-review-result.mjs";
+import { createProvenanceStatusIntent, publishProvenanceStatuses } from "./lib/provenance-review-publication.mjs";
+import { GitHubStatusPublisher } from "./providers/github-status-publisher.mjs";
+
+main().catch(() => {
+  // Provider content and database errors must not escape through CLI diagnostics.
+  process.stderr.write(JSON.stringify({ status: "blocked", reason: "Invalid input or unavailable local evidence. Check the input contract and database access." }) + "\n");
+  process.exitCode = 1;
+});
+
+async function readInput(path) {
+  const buffer = await readFile(path);
+  if (buffer.byteLength > 2 * 1024 * 1024) throw new Error("Input exceeds 2 MiB.");
+  return JSON.parse(buffer.toString("utf8"));
+}
+
+async function main() {
+  const query = ["databaseUrl", "digest", "projectKey", "repositoryId"];
+  const options = parseCommandOptions(process.argv.slice(2), {
+    capture: ["repo", "projectKey", "repositoryId", "base", "head", "out"],
+    "import-sources": ["input", "repo", "databaseUrl", "now", "out"],
+    "replay-sources": ["input", "repo", "databaseUrl", "now", "expectedDigest", "out"],
+    import: ["input", "databaseUrl", "out"],
+    replay: ["input", "databaseUrl", "out"],
+    show: [...query, "out"],
+    review: [...query, "repo", "base", "head", "now", "reportUrl", "securityInput", "policyDigest", "out"],
+    "review-intent": [...query, "repo", "base", "head", "now", "reportUrl", "out"],
+    "publish-review": [...query, "repo", "base", "head", "intentInput", "approvalInput", "out"],
+    packet: [...query, "repo", "base", "head", "now", "out"],
+    "import-security": [...query, "input", "policyDigest", "repo", "base", "head", "now", "out"],
+    security: ["input", "repo", "base", "head", "now", "gitleaks", "astGrep", "out"],
+  });
+  if (["import-sources", "replay-sources"].includes(options.command)) {
+    await importSources(options);
+    return;
+  }
+  if (options.command === "capture") {
+    requireOptions(options, ["repo", "projectKey", "repositoryId"], "capture");
+    await writeJsonOutput(await captureCandidate(options), options.out);
+    return;
+  }
+  if (options.command === "security") {
+    return runSecurityCommand(options);
+  }
+  if (["import", "replay"].includes(options.command)) {
+    requireOptions(options, ["input", "databaseUrl"], options.command);
+    const input = await readInput(options.input);
+    const lineage = input.schemaVersion ? verifyLineage(input) : assembleLineage(input);
+    const store = new LocalProvenanceStore({ databaseUrl: options.databaseUrl }); await store.migrate();
+    const digest = await store.putLineage(lineage);
+    await writeJsonOutput({ status: "stored", candidate: lineage.candidate, digest }, options.out);
+    return;
+  }
+  requireOptions(options, query, options.command);
+  const store = new LocalProvenanceStore({ databaseUrl: options.databaseUrl }); await store.migrate();
+  const lineage = await store.getLineage(options);
+  if (!lineage) {
+    await writeJsonOutput({ status: "blocked", reason: "No matching lineage in this project and repository. Import source evidence first." }, options.out);
+    process.exitCode = 1;
+    return;
+  }
+  if (options.command === "show") {
+    await writeJsonOutput(lineage, options.out);
+    return;
+  }
+  requireOptions(options, ["repo"], options.command);
+  const candidate = await captureCandidate(options);
+  const evaluation = { candidate, now: options.now ?? new Date().toISOString() };
+  if (options.command === "review-intent") {
+    await writeJsonOutput(createProvenanceStatusIntent(lineage, { ...evaluation, reportUrl: options.reportUrl ?? null }), options.out);
+    return;
+  }
+  if (options.command === "publish-review") return publishReviewCommand(options, lineage);
+  if (options.command === "import-security") {
+    return importSecurityCommand(options, { store, lineage, ...evaluation });
+  }
+  const result = options.command === "packet" ? buildReviewPacket(lineage, evaluation) : await reviewResult(options, lineage, evaluation);
+  await writeJsonOutput(result, options.out);
+  if (result.status !== "passed") process.exitCode = 1;
+}
+
+async function runSecurityCommand(options) {
+  requireOptions(options, ["input", "repo"], options.command);
+  const lineage = verifyLineage(await readInput(options.input));
+  const result = await scanCandidateSecurity({ ...options, lineage, now: options.now ?? new Date().toISOString() });
+  await writeJsonOutput(result, options.out);
+  if (result.status !== "passed") process.exitCode = 1;
+}
+
+async function reviewResult(options, lineage, evaluation) {
+  const securityReceipt = options.securityInput ? await readInput(options.securityInput) : null;
+  if (securityReceipt) requireOptions(options, ["policyDigest"], options.command);
+  return buildProvenanceReviewResult(lineage, { ...evaluation, reportUrl: options.reportUrl ?? null, securityReceipt, policyDigest: options.policyDigest });
+}
+
+async function publishReviewCommand(options, lineage) {
+  requireOptions(options, ["intentInput", "approvalInput"], options.command);
+  const intent = await readInput(options.intentInput);
+  const approval = await readInput(options.approvalInput);
+  const publisher = new GitHubStatusPublisher({ token: process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN });
+  const result = await publishProvenanceStatuses({ ...options, lineage, intent, approval, publisher, now: new Date().toISOString() });
+  await writeJsonOutput(result, options.out);
+  if (result.status !== "published") process.exitCode = 1;
+}
+
+async function importSecurityCommand(options, { store, lineage, candidate, now }) {
+  requireOptions(options, ["input", "policyDigest"], options.command);
+  if (candidate.id !== lineage.candidate.id) throw new Error("Security candidate changed.");
+  const review = await readInput(options.input);
+  const secured = attachSecurityReview({ lineage, review, policyDigest: options.policyDigest, now });
+  const digest = await store.putLineage(secured);
+  await writeJsonOutput({ status: review.status, candidate, digest, securityDigest: review.digest }, options.out);
+  if (review.status !== "passed") process.exitCode = 1;
+}
+
+async function importSources(options) {
+  requireOptions(options, ["input", "repo", "databaseUrl"], options.command);
+  if (options.command === "replay-sources") {
+    requireOptions(options, ["now", "expectedDigest"], options.command);
+    if (!/^[a-f0-9]{64}$/.test(options.expectedDigest)) throw new Error("Expected lineage digest must be SHA-256.");
+  }
+  const input = await readInput(options.input);
+  const snapshots = { ...input.snapshots };
+  const readers = Object.fromEntries(Object.entries(snapshots).map(([source, snapshot]) => [source, async () => snapshot]));
+  readers.git = () => captureGitSource({ repo: options.repo, candidate: input.candidate, capturedAt: options.now });
+  const result = await collectProvenanceSources({ candidate: input.candidate, selection: input.selection, readers, now: options.now });
+  if (options.expectedDigest && result.lineage.digest !== options.expectedDigest) {
+    await writeJsonOutput({ status: "blocked", reason: "Source replay differs from the original record. Reconcile changed or unavailable source evidence before accepting a new record.", expectedDigest: options.expectedDigest, ...result }, options.out);
+    process.exitCode = 1;
+    return;
+  }
+  const store = new LocalProvenanceStore({ databaseUrl: options.databaseUrl });
+  await store.migrate();
+  await store.putLineage(result.lineage);
+  const status = result.sources.every((source) => source.status === "present") ? "stored" : "blocked";
+  await writeJsonOutput({ status, ...result }, options.out);
+  if (status === "blocked") process.exitCode = 1;
+}

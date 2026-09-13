@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -17,6 +17,30 @@ async function hostGitVersion() {
   return stdout.match(/^git version (\d+\.\d+\.\d+)/)?.[1] ?? "";
 }
 
+test("Linux tool setup reuses installed tools and fails closed when installation is denied", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "tabellio-linux-tools-"));
+  const executable = (name, body) => writeFile(join(directory, name), `#!/bin/sh\n${body}\n`, {mode: 0o755});
+  try {
+    await Promise.all([
+      executable("git", 'echo "git version ${TEST_GIT_VERSION:-2.53.0}"'),
+      executable("id", "echo 1000"),
+      executable("pg_config", 'printf "%s\\n" "$TEST_POSTGRES_BIN"'),
+      executable("initdb", "exit 0"),
+      executable("pg_ctl", "exit 0"),
+      executable("sudo", "exit 73"),
+    ]);
+    const run = (overrides = {}) => execFileAsync("bash", [".buildkite/scripts/linux-tools.sh"], {
+      cwd: new URL("..", import.meta.url),
+      env: {...process.env, PATH: `${directory}:${process.env.PATH}`, TEST_POSTGRES_BIN: directory, ...overrides},
+    });
+    await run();
+    await assert.rejects(run({TEST_POSTGRES_BIN: join(directory, "missing")}), {code: 73});
+    await assert.rejects(run({TEST_GIT_VERSION: "2.43.0"}), {code: 73});
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
+});
+
 test("Buildkite adds bounded pull-request quality gates without CI cutover", async () => {
   const [pipeline, productValidation, repositoryCheck, fallow, packageCheck, gitToolchain] = await Promise.all([
     repositoryFile(".buildkite/pipeline.yml"),
@@ -32,8 +56,8 @@ test("Buildkite adds bounded pull-request quality gates without CI cutover", asy
   assert.match(pipeline, /key: "package"/);
   assert.match(pipeline, /key: "product-validation"/);
   assert.match(pipeline, /tabellio-git-toolchain\.json/);
-  assert.match(pipeline, /^agents:\n  queue: "macos-medium"$/m);
-  assert.doesNotMatch(pipeline, /queue: "linux-small"/);
+  assert.match(pipeline, /^agents:\n  queue: "linux-small"$/m);
+  assert.doesNotMatch(pipeline, /queue: "macos-medium"/);
   assert.doesNotMatch(pipeline, /linux-amd64/);
   assert.doesNotMatch(pipeline, /build-modern-git/);
   assert.doesNotMatch(pipeline, /BUILDKITE_GITHUB_EVENT/);

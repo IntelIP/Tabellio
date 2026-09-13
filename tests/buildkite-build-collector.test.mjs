@@ -26,6 +26,7 @@ test("Buildkite collector preserves complete exact build evidence", async () => 
   assert.equal(snapshot.repository, "IntelIP/Tabellio");
   assert.equal(snapshot.capturedAt, CAPTURED_AT);
   assert.deepEqual(snapshot.builds, [{
+    id: "44444444-4444-4444-8444-444444444444",
     number: 4,
     commit: COMMIT,
     state: "passed",
@@ -500,6 +501,7 @@ function pageEnvelope(path, values) {
 
 function build(number) {
   return {
+    id: "44444444-4444-4444-8444-444444444444",
     number,
     commit: COMMIT,
     state: "passed",
@@ -528,3 +530,16 @@ function availableSnapshot() {
     }],
   };
 }
+
+
+test("Buildkite collector rejects immutable build ID drift", async () => {
+  const snapshot = await collectBuildkiteBuildSnapshot({
+    ...collectorOptions(),
+    request: async (path) => {
+      const response = await fixtureRequest()(path);
+      if (path.includes("/builds/4?")) response.id = "55555555-5555-4555-8555-555555555555";
+      return response;
+    },
+  });
+  assert.equal(snapshot.status, "blocked");
+});
