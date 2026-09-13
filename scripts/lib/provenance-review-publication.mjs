@@ -95,7 +95,7 @@ export async function verifyPrivateControl({ repo, remote = "control", commandRu
   const store = await NativeGitStore.open(repo);
   const [origin, control] = await Promise.all([effectiveGitHubRepository(store, "origin"), effectiveGitHubRepository(store, remote)]);
   if (origin.key === control.key) throw new Error("Control state must use a separate private repository.");
-  const response = await commandRunner({ binary: "gh", args: ["repo", "view", control.fullName, "--json", "nameWithOwner,isPrivate"], cwd: repo, timeoutMs: 30000 });
+  const response = await commandRunner({ binary: "gh", args: ["repo", "view", `https://github.com/${control.fullName}`, "--json", "nameWithOwner,isPrivate"], cwd: repo, timeoutMs: 30000 });
   const metadata = JSON.parse(response.stdout);
   if (metadata.isPrivate !== true || String(metadata.nameWithOwner).toLowerCase() !== control.key) throw new Error("Control repository identity and private visibility must be verified.");
   return control.key;

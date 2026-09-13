@@ -211,7 +211,10 @@ test("shared receipts validate complete approval and status bindings", async (t)
 test("control validation rejects origin aliases, public repositories, and split push URLs", async (t) => {
   const input = await setup(t);
   const setControl = url => runGit({ cwd: input.repo, args: ["remote", "set-url", "control", url] });
-  const metadata = async () => ({ stdout: JSON.stringify({ nameWithOwner: "example/control", isPrivate: true }) });
+  const metadata = async ({args}) => {
+    assert.equal(args[2], "https://github.com/example/control");
+    return { stdout: JSON.stringify({ nameWithOwner: "example/control", isPrivate: true }) };
+  };
   await setControl("https://github.com/example/tabellio.git");
   await assert.rejects(verifyPrivateControl({ repo: input.repo, commandRunner: metadata }), /separate/);
   await setControl("https://github.com/example/control.git");

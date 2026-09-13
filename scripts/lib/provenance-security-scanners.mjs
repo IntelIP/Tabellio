@@ -37,7 +37,7 @@ function execute(command, args, { cwd, signal, binary = false } = {}) {
 }
 
 async function snapshot(repo, candidate, directory) {
-  const result = await execute("git", ["ls-tree", "-r", "-z", candidate.headCommit], { cwd: repo, binary: true });
+  const result = await execute("git", ["ls-tree", "--full-tree", "-r", "-z", candidate.headCommit], { cwd: repo, binary: true });
   if (result.exitCode !== 0) throw new Error("Candidate tree unavailable.");
   const files = new Map();
   let totalBytes = 0;

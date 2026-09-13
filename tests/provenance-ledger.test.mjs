@@ -158,6 +158,13 @@ test("sample Git repository binds real candidates and rejects moved refs and unr
   assert.equal(source.taskIdentifier, "SAMPLE-1");
   assert.equal(source.checkpointId, "abcdef123456");
   assert.equal(source.candidate.id, first.id);
+  const tree = (await git("rev-parse", "HEAD^{tree}")).stdout.trim();
+  const commit = async (message, ...parents) => (await git("commit-tree", tree, ...parents.flatMap((parent) => ["-p", parent]), "-m", message)).stdout.trim();
+  const left = await commit("Left", first.baseCommit);
+  const right = await commit("Right", first.baseCommit);
+  const leftMerge = await commit("Left merge", left, right);
+  const rightMerge = await commit("Right merge", right, left);
+  await assert.rejects(captureCandidate({ repo, projectKey: "SAMPLE", repositoryId: "sample/repository", base: leftMerge, head: rightMerge }), /exactly one merge base/);
   await assert.rejects(captureGitSource({ repo, candidate: { ...first, mergeBase: first.headCommit }, capturedAt: now }), /blocked/);
   const lineage = assembleLineage({ candidate: first, observations: sampleObservations(first) });
   assert.equal(evaluateLineage(lineage, { now }).status, "passed");

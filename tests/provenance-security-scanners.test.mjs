@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile, spawnSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -67,6 +67,15 @@ test("scanner uses immutable blobs and rejects a changed candidate", { skip: !gi
     await writeFile(join(input.repo, "app.mjs"), "eval(untrusted);\n");
     assert.equal((await scanCandidateSecurity(input)).status, "passed");
     await assert.rejects(scanCandidateSecurity({ ...input, head: "main" }));
+  });
+});
+
+test("scanning from a subdirectory still checks the full candidate tree", { skip: !gitleaks && !required }, async () => {
+  await withCandidate({ "outside.mjs": "eval(untrusted);\n" }, async (input) => {
+    const nested = join(input.repo, "nested");
+    await mkdir(nested);
+    const result = await scanCandidateSecurity({...input, repo: nested});
+    assert.equal(result.checks.find((item) => item.category === "trust").status, "failed");
   });
 });
 

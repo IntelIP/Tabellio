@@ -44,7 +44,9 @@ export function candidateIdentity(input) {
 export async function captureCandidate({ repo, projectKey, repositoryId, base = "main", head = "HEAD" }) {
   const resolve = async (ref) => (await runGit({ cwd: repo, args: ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`] })).stdout.trim();
   const [baseCommit, headCommit] = await Promise.all([resolve(base), resolve(head)]);
-  const mergeBase = (await runGit({ cwd: repo, args: ["merge-base", baseCommit, headCommit] })).stdout.trim();
+  const mergeBases = (await runGit({ cwd: repo, args: ["merge-base", "--all", baseCommit, headCommit] })).stdout.trim().split("\n");
+  if (mergeBases.length !== 1) throw new Error("Candidate must have exactly one merge base.");
+  const [mergeBase] = mergeBases;
   return candidateIdentity({ projectKey, repositoryId, baseCommit, headCommit, mergeBase });
 }
 
