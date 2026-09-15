@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
@@ -44,7 +46,9 @@ test("npm package includes every baseline validation input", async () => {
   required.forEach((path) => assert.equal(files.has(path), true, path));
 });
 
-test("analytics semantic validation accepts v0.2 provenance fields", async () => {
+test("analytics semantic validation accepts v0.2 provenance fields", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "tabellio-baseline-semantic-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
   const sources = [
     "reports/analytics/sources/2026-07-28-condere-provider-snapshot.json",
     "reports/analytics/sources/2026-07-28-probanda-provider-snapshot.json",
@@ -68,7 +72,7 @@ test("analytics semantic validation accepts v0.2 provenance fields", async () =>
     ...repositories.flatMap((repository) => [
       "--required-repository", repository,
     ]),
-    "--out", ".artifacts/tabellio/baseline-semantic-test.json",
+    "--out", join(root, "baseline-semantic-test.json"),
   ];
   const { stdout } = await execFileAsync(process.execPath, args, {
     cwd: process.cwd(),
