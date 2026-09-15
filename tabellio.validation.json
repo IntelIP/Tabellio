@@ -4,8 +4,8 @@
   "failFast": false,
   "requireEntireCheckpoint": true,
   "acceptance": {
-    "id": "tabellio-v0.5-control-plane-and-analytics",
-    "source": "repository product contract, docs/product-validation.md, INTB-261, and INTB-282, TAB-18 through TAB-29 rebuild plan (incremental implementation)",
+    "id": "tabellio-v0.7-provenance-and-runner-identity",
+    "source": "repository product contract, docs/product-validation.md, INTB-261, INTB-279, INTB-282, and TAB-18 through TAB-29",
     "risk": "high",
     "outcomes": [
       "Agent runs, checkpoints, reviews, and validation results remain bound to exact Git state.",
@@ -15,7 +15,8 @@
       "Analytics validator evidence distinguishes malformed inputs from valid contract failures.",
       "The packaged cross-repository baseline binds exact repository heads, provider snapshots, and a reproducible report.",
       "Wave admission accepts only Ready, dependency-satisfied, non-overlapping, current-base work with explicit WIP and integration ownership.",
-      "Local provenance survives a PostgreSQL server restart, replays deterministically, and blocks moved candidates and weak evidence."
+      "Local provenance survives a PostgreSQL server restart, replays deterministically, and blocks moved candidates and weak evidence.",
+      "Every new typed validation result identifies the Tabellio package version and exact runner source commit."
     ],
     "invariants": [
       "Validation never publishes, deploys, or mutates a live external system.",
@@ -23,7 +24,8 @@
       "A validation run cannot select a workspace root inside the repository or Git common directory.",
       "Analytics validator summaries and artifacts never copy rejected private source text.",
       "Baseline unavailable reasons remain derived from their packaged provider snapshots.",
-      "Wave admission remains deterministic and performs no external mutation."
+      "Wave admission remains deterministic and performs no external mutation.",
+      "Unavailable or dirty runner source identity remains explicit and is never inferred as released."
     ],
     "forbiddenOutcomes": [
       "A stale validation result is accepted for a moved head.",
@@ -32,7 +34,8 @@
       "A validation worktree, temporary HOME, dependency cache, or generated validator output is created under .git.",
       "Malformed analytics input is reported as passed or as a valid product failure.",
       "The shipped validation manifest references baseline evidence omitted from the package.",
-      "Wave admission launches tasks, mutates Plane, or accepts stale, overlapping, dependency-incomplete, or unowned work."
+      "Wave admission launches tasks, mutates Plane, or accepts stale, overlapping, dependency-incomplete, or unowned work.",
+      "Package metadata, runner evidence, and release identity disagree."
     ],
     "requiredValidatorTypes": ["static", "schema", "semantic", "workflow", "operational", "security"]
   },

@@ -2,6 +2,7 @@ node_modules/
 .tabellio/*
 !.tabellio/
 !.tabellio/validators.json
+!.tabellio/runner-identity-validators.json
 agentic-pr-evidence.json
 tabellio-pr-evidence.json
 tabellio-context.json

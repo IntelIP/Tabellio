@@ -4,6 +4,62 @@ All notable changes to Tabellio are recorded here.
 
 ## Unreleased
 
+## 0.7.0 - 2026-09-13
+
+This release combines the published v0.6.0 runner-identity contract with the
+TAB-18 through TAB-29 provenance, security, and review rebuild.
+
+### Added
+
+- Local PostgreSQL provenance storage with idempotent migrations, typed source
+  records, lineage relationships, and deterministic replay.
+- Bounded Plane, Entire, GitHub, Buildkite, Git, validation, and security source
+  adapters that preserve missing, stale, conflicting, and failed evidence.
+- Candidate-scoped review packets, separate security verdicts, and GitHub status
+  payloads that fail closed when evidence does not match the current code.
+- A repeatable provenance demo covering restart, replay, moved-base, tamper,
+  outage, secret, and failed-validation cases with cleanup and cost receipts.
+- Machine-readable runner identity from v0.6.0, including package version,
+  source commit, source cleanliness, and published release-tag verification.
+
+### Changed
+
+- Product validation now covers both provenance behavior and runner identity.
+- Linux CI installs pinned security tooling and runs PostgreSQL integration
+  checks without weakening the existing Git, review, or release boundaries.
+- The package includes its validator registry, release documentation, analytics
+  evidence, migrations, and data-boundary contract.
+
+### Release Gates
+
+- `npm run check`
+- `npm run tabellio:provenance:demo`
+- `npm run tabellio:provenance:security:check`
+- `npm pack --dry-run --json`
+- `tabellio-preflight --profile release`
+- Exact merged-head validation with `tabellio.v070-identity.validation.json`
+- Fresh review, explicit merge approval, release approval, npm publication, and
+  public-install verification
+
+## 0.6.0 - 2026-07-30
+
+### Added
+
+- Machine-readable `tabellio-version` identity reporting for package version, exact source commit, source cleanliness, and matching release tag.
+- Validation-result v0.4 runner provenance and focused INTB-279 product-validation evidence.
+
+### Changed
+
+- Typed validation evidence now binds the Tabellio package and exact runner source while retaining v0.1 through v0.3 reader compatibility.
+
+### Release Gates
+
+- `tabellio-preflight --profile release`
+- `npm run check`
+- Fallow whole-repository and changed-code scans
+- `npm pack --dry-run --json`
+- Exact candidate and merged-head Tabellio validation
+
 ## 0.5.0 - 2026-07-20
 
 This is the first publication candidate after v0.2.0. Versions 0.3.0 and 0.4.0 were development milestones and were not tagged, released on GitHub, or published to npm.
