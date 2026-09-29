@@ -36,10 +36,7 @@ test("runner identity schema binds package version, source commit, cleanliness, 
   assert.deepEqual(changedState.identity, dirtyState.identity);
   assert.notEqual(changedState.fingerprint, dirtyState.fingerprint);
 
-  const nested = join(root, "nested");
-  await mkdir(nested);
-  await runGit({ args: ["init", "-b", "main"], cwd: nested });
-  await writeFile(join(nested, "nested.txt"), "one\n");
+  const nested = await nestedFixture(root);
   const nestedState = await tabellioRunnerState({ root });
   assert.equal(nestedState.identity.sourceDirty, true);
   assert.match(nestedState.fingerprint, /^[0-9a-f]{64}$/);
@@ -256,10 +253,7 @@ test("runner identity treats unsafe index flags and their combination as dirty",
 test("runner fingerprint detects nested source hidden by unsafe index flags", async (t) => {
   for (const flag of ["--assume-unchanged", "--skip-worktree"]) {
     const root = await identityFixture(t);
-    const nested = join(root, "nested");
-    await mkdir(nested);
-    await runGit({ args: ["init", "-b", "main"], cwd: nested });
-    await writeFile(join(nested, "nested.txt"), "one\n");
+    const nested = await nestedFixture(root);
     await runGit({ args: ["add", "nested.txt"], cwd: nested });
     await runGit({ args: ["commit", "-m", "Add nested source"], cwd: nested, env: identityEnv() });
     await runGit({ args: ["update-index", flag, "nested.txt"], cwd: nested });
@@ -270,6 +264,14 @@ test("runner fingerprint detects nested source hidden by unsafe index flags", as
     assert.notEqual(after.fingerprint, before.fingerprint);
   }
 });
+
+async function nestedFixture(root) {
+  const nested = join(root, "nested");
+  await mkdir(nested);
+  await runGit({ args: ["init", "-b", "main"], cwd: nested });
+  await writeFile(join(nested, "nested.txt"), "one\n");
+  return nested;
+}
 
 async function identityFixture(t) {
   const root = await temporaryDirectory(t, "TabellioIdentity-");
