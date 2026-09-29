@@ -123,9 +123,10 @@ async function directoryFingerprint(path) {
     throw error;
   });
   const status = await readGit(path, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+  const flaggedPaths = unsafeIndexPaths((await readIndexFlags(path)).stdout);
   const fingerprint = revision === null
-    ? await fingerprintPaths(path, "unborn", status.stdout, "")
-    : await worktreeFingerprint(path, revision.stdout.trim(), status.stdout);
+    ? await fingerprintPaths(path, "unborn", status.stdout, "", flaggedPaths)
+    : await worktreeFingerprint(path, revision.stdout.trim(), status.stdout, flaggedPaths);
   return `repository:${fingerprint}`;
 }
 
@@ -138,7 +139,12 @@ async function readIndexFlags(root) {
   const directory = await mkdtemp(join(tmpdir(), "TabellioIndex-"));
   const copiedIndex = join(directory, "index");
   try {
-    await writeFile(copiedIndex, await readFile(resolve(root, indexPath)), { mode: 0o600 });
+    const index = await readFile(resolve(root, indexPath)).catch((error) => {
+      if (error?.code === "ENOENT") return null;
+      throw error;
+    });
+    if (index === null) return { stdout: "" };
+    await writeFile(copiedIndex, index, { mode: 0o600 });
     return await runGit({
       args: ["ls-files", "-v", "-z"],
       cwd: root,

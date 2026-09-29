@@ -36,7 +36,8 @@
     "tabellio-cloud-run-deployment": "scripts/tabellio-cloud-run-deployment.mjs",
     "tabellio-vercel-deployment": "scripts/tabellio-vercel-deployment.mjs",
     "tabellio-local-store": "scripts/tabellio-local-store.mjs",
-    "tabellio-provenance": "scripts/tabellio-provenance.mjs"
+    "tabellio-provenance": "scripts/tabellio-provenance.mjs",
+    "tabellio-provenance-demo": "scripts/demo-provenance.mjs"
   },
   "bugs": {
     "url": "https://github.com/IntelIP/Tabellio/issues"
@@ -55,7 +56,8 @@
     "tabellio.platform.json",
     "tabellio.validation.json",
     "tabellio.*.validation.json",
-    ".tabellio",
+    ".tabellio/validators.json",
+    ".tabellio/runner-identity-validators.json",
     "schemas",
     "scripts",
     "examples",
