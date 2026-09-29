@@ -64,6 +64,8 @@
     "tabellio.data-boundary.json"
   ],
   "scripts": {
+    "quality:dead-code": "npx --yes fallow@2.89.0 dead-code",
+    "quality:changed-code": "npx --yes fallow@2.89.0 audit --base origin/main --gate new-only",
     "test": "node --test tests/*.test.mjs",
     "tabellio:run": "node scripts/tabellio-run.mjs",
     "tabellio:run:example:check": "node scripts/check-tabellio-run.mjs --state examples/tabellio-run/minimal-run.json",
