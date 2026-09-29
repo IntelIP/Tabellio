@@ -24,7 +24,10 @@
 
 ## Validation
 
-The exact candidate commit must pass:
+This is the historical v0.6 contract. Its release manifest is not shipped in
+the v0.7 candidate; use `tabellio.v070-identity.validation.json` for v0.7.
+
+The v0.6 candidate was required to pass:
 
 - `tabellio.v060-identity.validation.json`
 - `tabellio.validation.json`

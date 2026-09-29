@@ -337,6 +337,35 @@ test("validation runner terminates timed-out commands and skips remaining fail-f
   assert(Date.now() - started < 20_000);
 });
 
+test("identity-required manifests reject legacy evidence without breaking legacy selection", async (t) => {
+  for (const requireRunnerIdentity of [false, true]) {
+    const fixture = await createFeatureFixture(t);
+    const definition = productManifest([
+      typedValidator("static-checks", "static", [process.execPath, "-e", "process.exit(0)"], null),
+    ], ["static"]);
+    definition.requireRunnerIdentity = requireRunnerIdentity;
+    await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(definition));
+    await commit(fixture.seed, "identity-requirement", "identity-requirement");
+    const { store, ledger, externalRoot } = await externalValidationHarness(fixture);
+    const runner = new ValidationRunner({ store, ledger, workspaceRoot: externalRoot });
+    const current = await runner.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" });
+    assert.equal(current.result.status, "passed");
+    const legacy = structuredClone(current.result);
+    legacy.schemaVersion = "tabellio-validation-result/v0.3";
+    legacy.runner = { id: legacy.runner.id, runtime: legacy.runner.runtime };
+    legacy.completedAt = new Date(Date.parse(legacy.completedAt) + 1000).toISOString();
+    const { integrity: _integrity, ...unsigned } = legacy;
+    legacy.integrity.digest = digestObject(unsigned);
+    assert.equal(validateValidationResult(legacy), legacy);
+    const selected = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/selection-test" });
+    const commitId = current.result.revision.headCommit;
+    await selected.write(`commits/${commitId}/legacy.json`, legacy, { expectedVersion: await selected.version() });
+    assert.deepEqual(await latestValidationResult(selected, commitId), requireRunnerIdentity ? null : legacy);
+    await selected.write(current.path, current.result, { expectedVersion: await selected.version() });
+    assert.deepEqual(await latestValidationResult(selected, commitId), requireRunnerIdentity ? current.result : legacy);
+  }
+});
+
 test("typed validators enforce semantic metrics and cost budgets with durable evidence", async (t) => {
   const fixture = await createFeatureFixture(t);
   const semantic = validatorEvidence("semantic-eval", {

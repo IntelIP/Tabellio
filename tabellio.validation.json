@@ -3,6 +3,7 @@
   "id": "tabellio-product-validity",
   "failFast": false,
   "requireEntireCheckpoint": true,
+  "requireRunnerIdentity": true,
   "acceptance": {
     "id": "tabellio-v0.7-provenance-and-runner-identity",
     "source": "repository product contract, docs/product-validation.md, INTB-261, INTB-279, INTB-282, and TAB-18 through TAB-29",

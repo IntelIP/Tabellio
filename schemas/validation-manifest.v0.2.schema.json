@@ -10,6 +10,7 @@
     "id": { "type": "string", "minLength": 1 },
     "failFast": { "type": "boolean" },
     "requireEntireCheckpoint": { "type": "boolean" },
+    "requireRunnerIdentity": { "type": "boolean" },
     "acceptance": { "$ref": "#/$defs/acceptance" },
     "validators": {
       "type": "array",

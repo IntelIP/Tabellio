@@ -320,14 +320,26 @@ export async function latestValidationResult(ledger, commit, repositoryId = null
   if (manifestPath !== null) requiredString(manifestPath, "manifestPath");
   const prefix = `commits/${commit}`;
   const listed = await ledger.list(prefix);
+  const manifests = new Map();
   let latest = null;
   for (const path of listed.paths) {
     const record = await ledger.read(path);
     if (!record.value) continue;
     if (!validationResultMatches(record.value, { commit, repositoryId, manifestPath, path })) continue;
+    if (record.value.schemaVersion !== VALIDATION_RESULT_SCHEMA_VERSION_V4
+      && await requiresRunnerIdentity(ledger, commit, record.value.suite.manifestPath, manifests)) continue;
     latest = newerValidationResult(latest, record.value);
   }
   return latest;
+}
+
+async function requiresRunnerIdentity(ledger, commit, manifestPath, manifests) {
+  if (!manifests.has(manifestPath)) {
+    const source = await runGit({ args: ["show", `${commit}:${manifestPath}`], cwd: ledger.repoPath });
+    const manifest = validateValidationManifest(JSON.parse(source.stdout));
+    manifests.set(manifestPath, manifest.requireRunnerIdentity === true);
+  }
+  return manifests.get(manifestPath);
 }
 
 function validationResultMatches(value, { commit, repositoryId, manifestPath, path }) {
@@ -365,14 +377,7 @@ export function validateValidationManifest(value) {
   boolean(value.failFast, "validation manifest.failFast");
   boolean(value.requireEntireCheckpoint, "validation manifest.requireEntireCheckpoint");
   if (value.schemaVersion === VALIDATION_MANIFEST_SCHEMA_VERSION_V2) {
-    exactKeys(
-      value,
-      ["schemaVersion", "id", "failFast", "requireEntireCheckpoint", "acceptance", "validators"],
-      "validation manifest",
-    );
-    validateAcceptanceContract(value.acceptance);
-    validateValidators(value.validators, value.acceptance.requiredValidatorTypes);
-    return value;
+    return validateProductManifest(value);
   }
   exactKeys(value, ["schemaVersion", "id", "failFast", "requireEntireCheckpoint", "commands"], "validation manifest");
   if (!Array.isArray(value.commands) || value.commands.length === 0 || value.commands.length > 50) {
@@ -394,6 +399,19 @@ export function validateValidationManifest(value) {
     }
     boolean(command.required, `${path}.required`);
   }
+  return value;
+}
+
+function validateProductManifest(value) {
+  const runnerIdentityKeys = Object.hasOwn(value, "requireRunnerIdentity") ? ["requireRunnerIdentity"] : [];
+  if (runnerIdentityKeys.length) boolean(value.requireRunnerIdentity, "validation manifest.requireRunnerIdentity");
+  exactKeys(
+    value,
+    ["schemaVersion", "id", "failFast", "requireEntireCheckpoint", "acceptance", "validators", ...runnerIdentityKeys],
+    "validation manifest",
+  );
+  validateAcceptanceContract(value.acceptance);
+  validateValidators(value.validators, value.acceptance.requiredValidatorTypes);
   return value;
 }
 
