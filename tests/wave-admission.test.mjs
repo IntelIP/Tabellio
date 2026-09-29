@@ -3,6 +3,7 @@ import {execFile} from "node:child_process";
 import {mkdtemp, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
+import {fileURLToPath} from "node:url";
 import {promisify} from "node:util";
 import test from "node:test";
 
@@ -144,13 +145,15 @@ test("security rejects unsafe owned surfaces and repository-external CLI inputs"
   manifest.lanes[0].ownedSurfaces = ["../secrets"];
   const report = admitWave(manifest);
   assert.equal(report.lanes[0].reasons[0].code, REASON_CODES.SURFACE_INVALID);
+  const cli = fileURLToPath(new URL("../scripts/tabellio-wave-admit.mjs", import.meta.url));
+  const repositoryRoot = await mkdtemp(join(tmpdir(), "tabellio-wave-repository-"));
   await assert.rejects(
-    execFileAsync(process.execPath, ["scripts/tabellio-wave-admit.mjs", "--manifest", "../outside.json"]),
+    execFileAsync(process.execPath, [cli, "--manifest", "../outside.json"], {cwd: repositoryRoot}),
     (error) => error.code === 2 && error.stderr.includes("manifest must stay inside the repository")
   );
 
   const externalRoot = await mkdtemp(join(tmpdir(), "tabellio-wave-external-"));
-  const linkRoot = await mkdtemp(join(process.cwd(), ".tabellio-wave-link-"));
+  const linkRoot = await mkdtemp(join(repositoryRoot, ".tabellio-wave-link-"));
   const externalManifest = join(externalRoot, "manifest.json");
   const manifestLink = join(linkRoot, "manifest.json");
   try {
@@ -158,14 +161,14 @@ test("security rejects unsafe owned surfaces and repository-external CLI inputs"
     await symlink(externalManifest, manifestLink);
     await assert.rejects(
       execFileAsync(process.execPath, [
-        "scripts/tabellio-wave-admit.mjs",
+        cli,
         "--manifest",
-        manifestLink.slice(process.cwd().length + 1)
-      ]),
+        manifestLink.slice(repositoryRoot.length + 1)
+      ], {cwd: repositoryRoot}),
       (error) => error.code === 2 && error.stderr.includes("manifest must stay inside the repository")
     );
   } finally {
-    await rm(linkRoot, {recursive: true, force: true});
+    await rm(repositoryRoot, {recursive: true, force: true});
     await rm(externalRoot, {recursive: true, force: true});
   }
 });

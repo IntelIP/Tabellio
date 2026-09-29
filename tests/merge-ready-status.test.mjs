@@ -360,7 +360,15 @@ test("status executor rejects state roots in linked worktrees and Git common sta
 
 test("status executor re-verifies exact validation and consumes one approval once", async () => {
   const root = await mkdtemp(join(tmpdir(), "tabellio-status-"));
-  const validation = await validationFixture();
+  await writeFile(join(root, "tabellio.validation.json"), await readFile(
+    new URL("../examples/tabellio-validation/product-manifest.json", import.meta.url),
+  ));
+  await runGit({ args: ["init", "-b", "main"], cwd: root });
+  await runGit({ args: ["add", "tabellio.validation.json"], cwd: root });
+  await runGit({ args: ["commit", "-m", "Add status validation contract"], cwd: root, env: identityEnv() });
+  const commit = (await runGit({ args: ["rev-parse", "HEAD"], cwd: root })).stdout.trim();
+  const validation = await validationFixture(commit);
+  const ledger = { ...validationLedger(validation), repoPath: root };
   const intent = createMergeReadyStatusIntent({
     repository,
     commit: validation.revision.headCommit,
@@ -375,7 +383,7 @@ test("status executor re-verifies exact validation and consumes one approval onc
       async gitConfig() { return "https://github.com/IntelIP/Tabellio.git"; },
       async resolveRef(value) { return value; },
     },
-    ledger: validationLedger(validation),
+    ledger,
     publisher: {
       async publish(value) {
         publications.push(value);
@@ -425,12 +433,13 @@ function approvalFor(intent, id) {
   };
 }
 
-async function validationFixture() {
+async function validationFixture(commit = null) {
   const source = JSON.parse(await readFile(
     new URL("../examples/tabellio-validation/minimal-result.json", import.meta.url),
     "utf8",
   ));
   source.repository.id = repository.id;
+  if (commit !== null) source.revision.headCommit = commit;
   const { integrity: _integrity, ...unsigned } = source;
   source.integrity.digest = digestObject(unsigned);
   return source;

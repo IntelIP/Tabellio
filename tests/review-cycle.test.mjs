@@ -382,6 +382,18 @@ test("agent review contract bounds finding count and text size", () => {
 async function createReviewFixture(t) {
   const fixture = await createFixture();
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
+  const manifest = JSON.stringify({
+    schemaVersion: "tabellio-validation/v0.1", id: "test-suite", failFast: true,
+    requireEntireCheckpoint: false,
+    commands: [{ id: "tests", argv: ["node", "--version"], cwd: ".", timeoutMs: 1000, required: true }],
+  });
+  for (const path of ["tabellio.validation.json", "alternate.validation.json"]) {
+    await writeFile(`${fixture.seed}/${path}`, manifest);
+  }
+  await runGit({ args: ["add", "tabellio.validation.json", "alternate.validation.json"], cwd: fixture.seed });
+  await runGit({ args: ["commit", "-m", "Add committed review validation contracts"], cwd: fixture.seed, env: identityEnv() });
+  fixture.featureCommit = (await runGit({ args: ["rev-parse", "HEAD"], cwd: fixture.seed })).stdout.trim();
   return {
     fixture,
     store: await NativeGitStore.open(fixture.seed),
