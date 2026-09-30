@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { provenanceDemoFailure } from "./lib/provenance-demo-failure.mjs";
 import { LocalProvenanceStore } from "./lib/local-provenance-store.mjs";
 import { captureCandidate } from "./lib/provenance-ledger.mjs";
 import { sampleObservations } from "../examples/provenance/sample.mjs";
@@ -193,8 +194,7 @@ try {
   );
 } catch (error) {
   const postgresLog = await readFile(join(root, "postgres.log"), "utf8").catch(() => "");
-  const socketPathFailure = /Unix-domain socket path.*too long/i.test(postgresLog);
-  receipt = { status: "blocked", failureClass: socketPathFailure ? "socket_path_too_long" : "local_command_failed", exitCode: typeof error.code === "number" ? error.code : null, reason: "Sample demo failed. Requires local PostgreSQL server/client binaries and Git; no provider credentials are required." };
+  receipt = { status: "blocked", ...provenanceDemoFailure(error, postgresLog), exitCode: typeof error?.code === "number" ? error.code : null };
   process.exitCode = 1;
 } finally {
   try {

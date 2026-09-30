@@ -117,7 +117,8 @@
     "tabellio:local-store": "node scripts/tabellio-local-store.mjs",
     "tabellio:provenance": "node scripts/tabellio-provenance.mjs",
     "tabellio:provenance:demo": "node scripts/demo-provenance.mjs",
-    "tabellio:provenance:security:check": "node scripts/check-provenance-security.mjs"
+    "tabellio:provenance:security:check": "node scripts/check-provenance-security.mjs",
+    "benchmark:provenance": "node scripts/benchmark-provenance.mjs"
   },
   "engines": {
     "node": ">=20"

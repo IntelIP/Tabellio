@@ -378,6 +378,7 @@ The external-action checker fails when an action is marked `attempted: true` wit
 - [Exact-commit validation](docs/validation-runner.md)
 - [Exact-head validation status](docs/merge-ready-status.md)
 - [Operations hardening](docs/operations-hardening.md)
+- [Core pilot acceptance and benchmark plan](docs/pilot/acceptance-plan.md)
 - [Workflow model](docs/workflow-model.md)
 - [Native Git foundation](docs/native-git-foundation.md)
 - [Evidence schema](docs/evidence-schema.md)
