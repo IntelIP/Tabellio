@@ -132,8 +132,16 @@ test("GitHub merged-head validation remains during Buildkite migration", async (
     /tabellio-validation-result\.json/,
     /tabellio-validation-private\.json" 2> "\$private_dir\/validation-stderr\.log"/,
     /trap 'rm -rf "\$private_dir"' EXIT/,
-    /bash \.buildkite\/scripts\/checkpoint-evidence\.sh/,
+    /node scripts\/ci-checkpoint-evidence\.mjs load/,
+    /node scripts\/ci-checkpoint-evidence\.mjs cleanup/,
+    /TABELLIO_CHECKPOINT_PROOF_1: \$\{\{ secrets\.TABELLIO_CHECKPOINT_PROOF_1 \}\}/,
+    /TABELLIO_CHECKPOINT_PROOF_2: \$\{\{ secrets\.TABELLIO_CHECKPOINT_PROOF_2 \}\}/,
   ]);
+  const loader = await repositoryFile("scripts/ci-checkpoint-evidence.mjs");
+  assert.match(loader, /execFileSync\('bash', \['\.buildkite\/scripts\/checkpoint-evidence\.sh'\]/);
+  assert.match(loader, /envelope\.candidate !== git\('rev-parse', 'HEAD'\)/);
+  assert.match(loader, /envelope\.base !== git\('merge-base', 'origin\/main', 'HEAD'\)/);
+  assert.match(loader, /createHash\('sha256'\)\.update\(bytes\)\.digest\('hex'\) !== envelope\.sha256/);
   assert.doesNotMatch(workflow, /refs\/tabellio\/validations\//);
   assert.doesNotMatch(workflow, /validation-ref\.bundle/);
 });
