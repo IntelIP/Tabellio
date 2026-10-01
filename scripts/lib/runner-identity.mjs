@@ -65,7 +65,7 @@ async function readGitSourceIdentity(root, packageVersion, includeFingerprint) {
 }
 
 async function worktreeFingerprint(root, commit, status, flaggedPaths = []) {
-  const changed = await readGit(root, ["diff", "--name-only", "--no-renames", "-z", "HEAD", "--"]);
+  const changed = await readGit(root, ["-c", "diff.autoRefreshIndex=false", "diff", "--name-only", "--no-renames", "-z", "HEAD", "--"]);
   return fingerprintPaths(root, commit, status, changed.stdout, flaggedPaths);
 }
 
