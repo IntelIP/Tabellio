@@ -1,3 +1,4 @@
+import { captureValidationCheckpoints, validateCheckpointEvidence, verifyCheckpointBindings } from "./validation-checkpoints.mjs";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
@@ -18,6 +19,7 @@ const VALIDATION_RESULT_SCHEMA_VERSION_V4 = "tabellio-validation-result/v0.4";
 const VALIDATOR_EVIDENCE_SCHEMA_VERSION = "tabellio-validator-evidence/v0.1";
 const VALIDATOR_TYPES = ["static", "schema", "semantic", "workflow", "visual", "operational", "security"];
 const SEMANTIC_VERSION = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const VALIDATION_RESULT_SCHEMA_VERSION_V5 = "tabellio-validation-result/v0.5";
 const MAX_OUTPUT_TAIL_BYTES = 16 * 1024;
 const MAX_EVIDENCE_BYTES = 1024 * 1024;
 
@@ -57,6 +59,8 @@ export class ValidationRunner {
     if (manifest.requireEntireCheckpoint && checkpoints.length === 0) {
       throw new Error(`Checkpoint range ${checkpointRevision.mergeBase}..${checkpointRevision.headCommit} has no Entire checkpoint.`);
     }
+    const checkpointEvidence = manifest.requireEntireCheckpoint
+      ? await captureValidationCheckpoints(this.store.repoPath, repositoryId, checkpointRevision, checkpoints) : null;
     const initialRunnerState = await this.runnerState();
     const runnerIdentity = initialRunnerState.identity;
 
@@ -115,6 +119,7 @@ export class ValidationRunner {
       runnerId,
       runnerIdentity,
       checkpoints,
+      checkpointEvidence,
       startedAt,
       completedAt,
     });
@@ -268,6 +273,7 @@ function buildValidationResult({
   runnerId,
   runnerIdentity,
   checkpoints,
+  checkpointEvidence,
   startedAt,
   completedAt,
 }) {
@@ -275,7 +281,9 @@ function buildValidationResult({
   const decision = typed ? validationDecision(execution.validators) : null;
   const requiredFailed = execution.commands.some((command, index) => definitions[index].required && command.status !== "passed");
   const result = {
-    schemaVersion: typed ? VALIDATION_RESULT_SCHEMA_VERSION_V4 : VALIDATION_RESULT_SCHEMA_VERSION_V2,
+    schemaVersion: VALIDATION_RESULT_SCHEMA_VERSION_V5,
+    kind: typed ? "product" : "commands",
+    checkpointEvidence,
     runId,
     repository: { id: repositoryId },
     revision,
@@ -285,11 +293,11 @@ function buildValidationResult({
       manifestPath,
       manifestDigest: digestObject(manifest),
     },
-    runner: typed ? {
+    runner: {
       id: runnerId,
       runtime: `node-${process.version}`,
       ...runnerIdentity,
-    } : { id: runnerId, runtime: `node-${process.version}` },
+    },
     status: decision?.status ?? (requiredFailed ? "failed" : "passed"),
     checkpoints,
     commands: execution.commands,
@@ -326,11 +334,24 @@ export async function latestValidationResult(ledger, commit, repositoryId = null
     const record = await ledger.read(path);
     if (!record.value) continue;
     if (!validationResultMatches(record.value, { commit, repositoryId, manifestPath, path })) continue;
-    if (record.value.schemaVersion !== VALIDATION_RESULT_SCHEMA_VERSION_V4
+    if (![VALIDATION_RESULT_SCHEMA_VERSION_V4, VALIDATION_RESULT_SCHEMA_VERSION_V5].includes(record.value.schemaVersion)
       && await requiresRunnerIdentity(ledger, commit, record.value.suite.manifestPath, manifests)) continue;
+    if (!await matchesCheckpointContract(ledger, commit, record.value)) continue;
     latest = newerValidationResult(latest, record.value);
   }
   return latest;
+}
+
+async function matchesCheckpointContract(ledger, commit, result) {
+  const source = await runGit({ args: ["show", `${commit}:${result.suite.manifestPath}`], cwd: ledger.repoPath });
+  const manifest = validateValidationManifest(JSON.parse(source.stdout));
+  if (result.suite.manifestDigest !== digestObject(manifest)) return false;
+  if (!manifest.requireEntireCheckpoint) return true;
+  if (!result.checkpointEvidence) return false;
+  try {
+    await verifyCheckpointBindings(ledger.repoPath, result.checkpointEvidence);
+    return true;
+  } catch { return false; }
 }
 
 async function requiresRunnerIdentity(ledger, commit, manifestPath, manifests) {
@@ -424,10 +445,11 @@ export function validateValidationResult(value) {
       VALIDATION_RESULT_SCHEMA_VERSION_V2,
       VALIDATION_RESULT_SCHEMA_VERSION_V3,
       VALIDATION_RESULT_SCHEMA_VERSION_V4,
+      VALIDATION_RESULT_SCHEMA_VERSION_V5,
     ],
     "validation result.schemaVersion",
   );
-  exactKeys(value, validationResultKeys(value.schemaVersion), "validation result");
+  exactKeys(value, validationResultKeys(value), "validation result");
   requiredString(value.runId, "validation result.runId");
   object(value.repository, "validation result.repository");
   exactKeys(value.repository, ["id"], "validation result.repository");
@@ -442,10 +464,14 @@ export function validateValidationResult(value) {
   validateResultRunner(value.runner, value.schemaVersion);
   member(
     value.status,
-    isTypedValidationResult(value.schemaVersion) ? ["passed", "failed", "blocked"] : ["passed", "failed"],
+    isTypedValidationResult(value) ? ["passed", "failed", "blocked"] : ["passed", "failed"],
     "validation result.status",
   );
   stringArray(value.checkpoints, "validation result.checkpoints");
+  if (value.schemaVersion === VALIDATION_RESULT_SCHEMA_VERSION_V5) {
+    member(value.kind, ["commands", "product"], "validation result.kind");
+    if (value.checkpointEvidence !== null) validateCheckpointEvidence(value.checkpointEvidence, value.repository.id, value.checkpointRevision, value.checkpoints);
+  }
   if (!Array.isArray(value.commands) || value.commands.length === 0) throw new Error("validation result.commands must be a non-empty array.");
   value.commands.forEach((command, index) => validateCommandResult(command, `validation result.commands[${index}]`));
   date(value.startedAt, "validation result.startedAt");
@@ -455,7 +481,7 @@ export function validateValidationResult(value) {
   equals(value.integrity.algorithm, "sha256", "validation result.integrity.algorithm");
   sha256(value.integrity.digest, "validation result.integrity.digest");
   if (validationResultDigest(value) !== value.integrity.digest) throw new Error("validation result integrity digest does not match.");
-  if (isTypedValidationResult(value.schemaVersion)) {
+  if (isTypedValidationResult(value)) {
     validateTypedValidationResult(value);
     return value;
   }
@@ -464,12 +490,14 @@ export function validateValidationResult(value) {
   return value;
 }
 
-function validationResultKeys(schemaVersion) {
+function validationResultKeys(value) {
+  const { schemaVersion } = value;
   const keys = ["schemaVersion", "runId", "repository", "revision", "suite", "runner", "status", "checkpoints", "commands", "startedAt", "completedAt", "integrity"];
-  if (isTypedValidationResult(schemaVersion)) {
+  if (schemaVersion === VALIDATION_RESULT_SCHEMA_VERSION_V5) keys.push("kind", "checkpointEvidence");
+  if (isTypedValidationResult(value)) {
     return [...keys, "checkpointRevision", "acceptance", "validators", "decision"];
   }
-  return schemaVersion === VALIDATION_RESULT_SCHEMA_VERSION_V2 ? [...keys, "checkpointRevision"] : keys;
+  return [VALIDATION_RESULT_SCHEMA_VERSION_V2, VALIDATION_RESULT_SCHEMA_VERSION_V5].includes(schemaVersion) ? [...keys, "checkpointRevision"] : keys;
 }
 
 function validateCheckpointRevision(value) {
@@ -477,24 +505,25 @@ function validateCheckpointRevision(value) {
     VALIDATION_RESULT_SCHEMA_VERSION_V2,
     VALIDATION_RESULT_SCHEMA_VERSION_V3,
     VALIDATION_RESULT_SCHEMA_VERSION_V4,
+    VALIDATION_RESULT_SCHEMA_VERSION_V5,
   ].includes(value.schemaVersion)) {
     validateRevision(value.checkpointRevision, "validation result.checkpointRevision");
   }
 }
 
-function isTypedValidationResult(schemaVersion) {
-  return [VALIDATION_RESULT_SCHEMA_VERSION_V3, VALIDATION_RESULT_SCHEMA_VERSION_V4].includes(schemaVersion);
+function isTypedValidationResult({ schemaVersion, kind }) {
+  return [VALIDATION_RESULT_SCHEMA_VERSION_V3, VALIDATION_RESULT_SCHEMA_VERSION_V4].includes(schemaVersion) || (schemaVersion === VALIDATION_RESULT_SCHEMA_VERSION_V5 && kind === "product");
 }
 
 function validateResultRunner(value, schemaVersion) {
   object(value, "validation result.runner");
-  const runnerKeys = schemaVersion === VALIDATION_RESULT_SCHEMA_VERSION_V4
+  const runnerKeys = [VALIDATION_RESULT_SCHEMA_VERSION_V4, VALIDATION_RESULT_SCHEMA_VERSION_V5].includes(schemaVersion)
     ? ["id", "runtime", "packageName", "packageVersion", "sourceCommit", "sourceDirty", "releaseTag"]
     : ["id", "runtime"];
   exactKeys(value, runnerKeys, "validation result.runner");
   requiredString(value.id, "validation result.runner.id");
   requiredString(value.runtime, "validation result.runner.runtime");
-  if (schemaVersion === VALIDATION_RESULT_SCHEMA_VERSION_V4) validateRunnerIdentity(value);
+  if ([VALIDATION_RESULT_SCHEMA_VERSION_V4, VALIDATION_RESULT_SCHEMA_VERSION_V5].includes(schemaVersion)) validateRunnerIdentity(value);
 }
 
 function validateRunnerIdentity(value) {
@@ -1034,7 +1063,7 @@ async function resolveRevision(store, base, head) {
 
 async function checkpointIds(cwd, baseCommit, headCommit) {
   const result = await runGit({
-    args: ["log", "--format=%(trailers:key=Entire-Checkpoint,valueonly)", "--no-merges", `${baseCommit}..${headCommit}`],
+    args: ["log", "--format=%(trailers:key=Entire-Checkpoint,valueonly)", `${baseCommit}..${headCommit}`],
     cwd,
   });
   return [...new Set(result.stdout.split(/\r?\n/).map((value) => value.trim()).filter(Boolean))].sort();

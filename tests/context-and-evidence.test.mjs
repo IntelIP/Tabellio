@@ -290,6 +290,7 @@ test("stable schema identifiers keep external references and released contracts 
     validationV2,
     validationV3,
     validationV4,
+    validationV5,
   ] = await Promise.all([
     readFile(`${projectRoot}/schemas/evidence-envelope.schema.json`, "utf8").then(JSON.parse),
     readFile(`${projectRoot}/schemas/external-action-policy.schema.json`, "utf8").then(JSON.parse),
@@ -303,6 +304,7 @@ test("stable schema identifiers keep external references and released contracts 
     readFile(`${projectRoot}/schemas/validation-result.v0.2.schema.json`, "utf8").then(JSON.parse),
     readFile(`${projectRoot}/schemas/validation-result.v0.3.schema.json`, "utf8").then(JSON.parse),
     readFile(`${projectRoot}/schemas/validation-result.v0.4.schema.json`, "utf8").then(JSON.parse),
+    readFile(`${projectRoot}/schemas/validation-result.v0.5.schema.json`, "utf8").then(JSON.parse),
   ]);
   assert.equal(evidenceSchema.properties.externalActionPolicy.$ref, policySchema.$id);
   assert.equal(releaseSchema.properties.control.properties.intent.$ref, controlSchema.$id);
@@ -311,7 +313,9 @@ test("stable schema identifiers keep external references and released contracts 
   assert.equal(reviewV3.$id, "urn:tabellio:schema:review-cycle:v0.3");
   assert.equal(reviewV2.$defs.event.properties.type.enum.includes("ready"), false);
   assert.equal(reviewV3.$defs.event.properties.type.enum.includes("ready"), true);
-  assert.equal(validationAlias.$ref, "validation-result.v0.2.schema.json");
+  assert.deepEqual(validationAlias.oneOf.map(item => item.$ref), [1, 2, 3, 4, 5].map(version => `validation-result.v0.${version}.schema.json`));
+  assert.equal(validationV5.$id, "urn:tabellio:schema:validation-result:v0.5");
+  assert.deepEqual(validationV5.oneOf.map(item => item.properties.kind.const), ["commands", "product"]);
   assert.equal(validationV1.$id, "urn:tabellio:schema:validation-result:v0.1");
   assert.equal(validationV2.$id, "urn:tabellio:schema:validation-result:v0.2");
   assert.equal(Object.hasOwn(validationV1.properties, "checkpointRevision"), false);

@@ -45,7 +45,7 @@ async function assertCurrent(repo, intent, base, head) {
 
 function checkedResponse(response, expected) {
   for (const key of ["commit", "state", "context", "description", "targetUrl"]) contract.equals(response[key], expected[key], `published.${key}`);
-  if (!/^[0-9]{1,20}$/.test(String(response.id))) throw new Error("Invalid published status ID.");
+  if ((typeof response.id !== "string" && !Number.isSafeInteger(response.id)) || !/^[1-9][0-9]{0,19}$/.test(String(response.id))) throw new Error("Invalid published status ID.");
   return { id: String(response.id), commit: response.commit, state: response.state, context: response.context };
 }
 
@@ -54,7 +54,9 @@ async function sendStatuses({ repo, intent, base, head, publisher }) {
   try {
     for (const expected of intent.statuses) {
       await assertCurrent(repo, intent, base, head);
-      published.push(checkedResponse(await publisher.publish(expected), expected));
+      const response = checkedResponse(await publisher.publish(expected), expected);
+      if (published.some(item => item.id === response.id)) throw new Error("Duplicate published status ID.");
+      published.push(response);
     }
     await assertCurrent(repo, intent, base, head);
     return { status: "published", published };
@@ -84,7 +86,7 @@ function validateStoredReceipt(receipt, intent, approval, now) {
   for (const [index, published] of receipt.published.entries()) {
     contract.object(published, "receipt.published");
     contract.exactKeys(published, ["id", "commit", "state", "context"], "receipt.published");
-    if (typeof published.id !== "string" || !/^[0-9]{1,20}$/.test(published.id) || ids.has(published.id)) throw new Error("Invalid receipt status ID.");
+    if (typeof published.id !== "string" || !/^[1-9][0-9]{0,19}$/.test(published.id) || ids.has(published.id)) throw new Error("Invalid receipt status ID.");
     ids.add(published.id);
     for (const key of ["commit", "state", "context"]) contract.equals(published[key], intent.statuses[index][key], `receipt.published.${key}`);
   }

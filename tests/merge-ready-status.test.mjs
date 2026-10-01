@@ -360,14 +360,17 @@ test("status executor rejects state roots in linked worktrees and Git common sta
 
 test("status executor re-verifies exact validation and consumes one approval once", async () => {
   const root = await mkdtemp(join(tmpdir(), "tabellio-status-"));
-  await writeFile(join(root, "tabellio.validation.json"), await readFile(
-    new URL("../examples/tabellio-validation/product-manifest.json", import.meta.url),
-  ));
+  const manifest = JSON.parse(await readFile(new URL("../examples/tabellio-validation/product-manifest.json", import.meta.url), "utf8"));
+  manifest.requireEntireCheckpoint = false; // This fixture tests publication approvals, not capture.
+  await writeFile(join(root, "tabellio.validation.json"), JSON.stringify(manifest));
   await runGit({ args: ["init", "-b", "main"], cwd: root });
   await runGit({ args: ["add", "tabellio.validation.json"], cwd: root });
   await runGit({ args: ["commit", "-m", "Add status validation contract"], cwd: root, env: identityEnv() });
   const commit = (await runGit({ args: ["rev-parse", "HEAD"], cwd: root })).stdout.trim();
   const validation = await validationFixture(commit);
+  validation.suite.manifestDigest = digestObject(manifest);
+  const { integrity: _fixtureIntegrity, ...fixtureUnsigned } = validation;
+  validation.integrity.digest = digestObject(fixtureUnsigned);
   const ledger = { ...validationLedger(validation), repoPath: root };
   const intent = createMergeReadyStatusIntent({
     repository,
@@ -458,3 +461,13 @@ function validationLedger(value) {
     },
   };
 }
+
+test("GitHub status publisher rejects imprecise and nonpositive JSON IDs", async () => {
+  for (const id of [Number.MAX_SAFE_INTEGER + 1, 0, -1]) {
+    const publisher = new GitHubStatusPublisher({
+      token: "synthetic-token", baseUrl: "http://127.0.0.1",
+      fetchImpl: async () => new Response(JSON.stringify({ id, state: "success", context: "test", description: "test" }), { status: 201 }),
+    });
+    await assert.rejects(publisher.publish({ owner: "example", repo: "test", commit: "b".repeat(40), state: "success", context: "test", description: "test" }), /positive safe integer/);
+  }
+});

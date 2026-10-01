@@ -4,6 +4,9 @@ Status: proposed execution gates. This is not an enterprise certification or a
 replacement for explicit merge/release authority. SSO, billing, multi-tenant
 hosting, and the historical PR-less merge UI are outside this pilot.
 
+See [architecture and evidence recovery](architecture-and-recovery.md) for storage
+boundaries, uncertain-publication handling and read-only reconciliation.
+
 ## Establish the baseline
 
 Record the exact source commit, clean/dirty runner identity, package version,

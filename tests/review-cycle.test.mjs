@@ -383,11 +383,7 @@ async function createReviewFixture(t) {
   const fixture = await createFixture();
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
   await runGit({ args: ["switch", "feature"], cwd: fixture.seed });
-  const manifest = JSON.stringify({
-    schemaVersion: "tabellio-validation/v0.1", id: "test-suite", failFast: true,
-    requireEntireCheckpoint: false,
-    commands: [{ id: "tests", argv: ["node", "--version"], cwd: ".", timeoutMs: 1000, required: true }],
-  });
+  const manifest = JSON.stringify(reviewValidationManifest());
   for (const path of ["tabellio.validation.json", "alternate.validation.json"]) {
     await writeFile(`${fixture.seed}/${path}`, manifest);
   }
@@ -568,7 +564,7 @@ function validationResult(commit, runId, status, completedAt, manifestPath = "ta
     runId,
     repository: { id: "example/repository" },
     revision: { baseCommit: "a".repeat(40), mergeBase: "a".repeat(40), headCommit: commit },
-    suite: { id: "test-suite", manifestPath, manifestDigest: "c".repeat(64) },
+    suite: { id: "test-suite", manifestPath, manifestDigest: digestObject(reviewValidationManifest()) },
     runner: { id: "test", runtime: "node-test" },
     status,
     checkpoints: ["checkpoint-001"],
@@ -593,3 +589,9 @@ function validationResult(commit, runId, status, completedAt, manifestPath = "ta
   value.integrity = { algorithm: "sha256", digest: digestObject(value) };
   return value;
 }
+
+function reviewValidationManifest() { return {
+    schemaVersion: "tabellio-validation/v0.1", id: "test-suite", failFast: true,
+    requireEntireCheckpoint: false,
+    commands: [{ id: "tests", argv: ["node", "--version"], cwd: ".", timeoutMs: 1000, required: true }],
+  }; }

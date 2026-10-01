@@ -1,3 +1,4 @@
+import { installEntireFixture, fixtureCheckpoint } from "./helpers/entire-fixture.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -306,6 +307,7 @@ test("approved release publishes exact control ref, annotated tag, and GitHub re
 
 test("release planning binds merged PR proof after exact validation and terminal review sync", async (t) => {
   const fixture = await createFixture();
+  await installEntireFixture(t, fixture.root, { abcdef123456: fixtureCheckpoint("abcdef123456") });
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
   const control = join(fixture.root, "control-plan.git");
   await NativeGitStore.createBare(control);

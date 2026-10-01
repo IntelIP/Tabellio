@@ -101,6 +101,20 @@ test("mismatched provider response cannot upgrade blocked evidence", async (t) =
   assert.deepEqual(receipt.published, []);
 });
 
+test("duplicate provider status IDs stay blocked and replay sends nothing", async (t) => {
+  const input = await setup(t);
+  let calls = 0;
+  input.publisher = { publish: async request => {
+    calls += 1;
+    return { ...request, id: "123" };
+  } };
+  const receipt = await publishProvenanceStatuses(input);
+  assert.equal(receipt.status, "blocked");
+  assert.equal(receipt.published.length, 1);
+  assert.deepEqual(await publishProvenanceStatuses(input), receipt);
+  assert.equal(calls, 2);
+});
+
 test("candidate movement between statuses stops the second publication", async (t) => {
   const input = await setup(t);
   let count = 0;
@@ -193,6 +207,8 @@ test("shared receipts validate complete approval and status bindings", async (t)
     value => { value.published[0].state = "error"; },
     value => { value.published[0].context = "unrelated"; },
     value => { value.published[0].id = "invalid"; },
+    value => { value.published[0].id = "01"; },
+    value => { value.published[0].id = "0"; },
     value => { value.published[1].id = value.published[0].id; },
     value => { value.attemptedAt = "2026-09-12T13:00:00Z"; },
     value => { value.extra = "untrusted"; },
@@ -233,4 +249,72 @@ test("changed control identity stops reservation before any GitHub write", async
   assert.equal(input.calls.length, 0);
   const refs = await runGit({ cwd: input.repo, args: ["ls-remote", "--refs", "control", "refs/tabellio/provenance-status-reservations/*"] });
   assert.equal(refs.stdout, "");
+});
+
+test("interrupted receipt synchronization keeps remote pending and prevents redelivery", async (t) => {
+  const input = await setup(t);
+  const verifier = input.controlVerifier;
+  let reads = 0;
+  input.controlVerifier = async options => {
+    if (++reads === 3) throw new Error("synthetic control outage after delivery");
+    return verifier(options);
+  };
+  const receipt = await publishProvenanceStatuses(input);
+  assert.equal(receipt.status, "blocked");
+  assert.equal(receipt.published.length, 2);
+  assert.match(receipt.reason, /synchronization is uncertain/);
+  input.controlVerifier = verifier;
+  const replay = await publishProvenanceStatuses(input);
+  assert.equal(replay.status, "blocked");
+  assert.match(replay.reason, /earlier attempt is unresolved/);
+  assert.deepEqual(replay.published, []);
+  assert.equal(input.calls.length, 2);
+});
+
+test("mixed numeric and string duplicate IDs block replay", async t => {
+ const input = await setup(t);
+ let count=0;
+ input.publisher={publish:async request=>({...request,id:++count===1?123:"123"})};
+ const result=await publishProvenanceStatuses(input);
+ assert.equal(result.status,"blocked");
+ assert.equal(result.published.length,1);
+ assert.deepEqual(await publishProvenanceStatuses(input),result);
+ assert.equal(count,2);
+});
+test("fresh clone cannot redeliver after interrupted receipt synchronization", async t => {
+ const input=await setup(t);
+ const verifier=input.controlVerifier;
+ let reads=0;
+ input.controlVerifier=async options=>{
+  if(++reads===3) throw new Error("synthetic final receipt outage");
+  return verifier(options);
+ };
+ assert.equal((await publishProvenanceStatuses(input)).status,"blocked");
+ const second=input.repo+"-recovery";
+ await runGit({cwd:input.repo,args:["clone",input.repo,second]});
+ await runGit({cwd:second,args:["branch","main","origin/main"]});
+ await runGit({cwd:second,args:["remote","set-url","origin","https://github.com/example/tabellio.git"]});
+ await runGit({cwd:second,args:["remote","add","control",input.control]});
+ const ref=`refs/tabellio/provenance-status-reservations/${digestObject({approvalId:input.approval.id})}`;
+ const ledger=await GitJsonLedger.open({repoPath:second,ref});
+ assert.equal((await ledger.read("receipt.json")).value,null);
+ const replay=await publishProvenanceStatuses({...input,repo:second,controlVerifier:verifier});
+ assert.equal(replay.status,"blocked");
+ assert.match(replay.reason,/earlier attempt is unresolved/);
+ assert.equal(input.calls.length,2);
+});
+
+test("ambiguous provider IDs block and remain replayable", { concurrency: 2 }, async t => {
+  await Promise.all(["0123", "0", 0, -1, Number.MAX_SAFE_INTEGER + 1, {}, 123n].map(id =>
+    t.test(String(id), async t => {
+      const input = await setup(t);
+      let calls = 0;
+      input.publisher = { publish: async request => { calls += 1; return { ...request, id }; } };
+      const receipt = await publishProvenanceStatuses(input);
+      assert.equal(receipt.status, "blocked");
+      assert.deepEqual(receipt.published, []);
+      assert.deepEqual(await publishProvenanceStatuses(input), receipt);
+      assert.equal(calls, 1);
+    })
+  ));
 });
