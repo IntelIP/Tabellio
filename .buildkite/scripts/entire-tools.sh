@@ -30,7 +30,8 @@ if (actual !== process.argv[3]) throw new Error('Entire archive integrity mismat
 NODE
 tar -xzf "$entire_archive_path" -C "$entire_tools_root" entire
 export PATH="$entire_tools_root:$PATH"
-entire version | grep -Eq '^Entire CLI v?0\.7\.7([[:space:]]|$)'
+entire_version_output="$(entire version)"
+grep -Eq '^Entire CLI v?0\.7\.7([[:space:]]|$)' <<< "$entire_version_output"
 if [[ -n "${GITHUB_PATH:-}" ]]; then
   printf '%s\n' "$entire_tools_root" >> "$GITHUB_PATH"
 fi
