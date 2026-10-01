@@ -35,6 +35,25 @@ async function setup(t, change = () => {}) {
   return { repo, lineage, intent, now, publisher, calls, approval: approval(intent), control: fixture.bare, controlVerifier };
 }
 
+async function clonePublicationRepo(input, suffix) {
+  const second = input.repo + suffix;
+  await runGit({ cwd: input.repo, args: ["clone", input.repo, second] });
+  await runGit({ cwd: second, args: ["branch", "main", "origin/main"] });
+  await runGit({ cwd: second, args: ["remote", "set-url", "origin", "https://github.com/example/tabellio.git"] });
+  await runGit({ cwd: second, args: ["remote", "add", "control", input.control] });
+  return second;
+}
+
+function interruptReceiptSync(input, message) {
+  const verifier = input.controlVerifier;
+  let reads = 0;
+  input.controlVerifier = async options => {
+    if (++reads === 3) throw new Error(message);
+    return verifier(options);
+  };
+  return verifier;
+}
+
 test("published GitHub statuses match the CLI intent and approval replay sends nothing", async (t) => {
   const input = await setup(t);
   const first = await publishProvenanceStatuses(input);
@@ -144,11 +163,7 @@ test("shared control reservation prevents duplicate delivery across independent 
     process.env[key] = "2026-09-12T12:00:00Z";
     t.after(() => { if (before === undefined) delete process.env[key]; else process.env[key] = before; });
   }
-  const second = input.repo + "-second";
-  await runGit({ cwd: input.repo, args: ["clone", input.repo, second] });
-  await runGit({ cwd: second, args: ["branch", "main", "origin/main"] });
-  await runGit({ cwd: second, args: ["remote", "set-url", "origin", "https://github.com/example/tabellio.git"] });
-  await runGit({ cwd: second, args: ["remote", "add", "control", input.control] });
+  const second = await clonePublicationRepo(input, "-second");
   const verifier = input.controlVerifier;
   const callsByClone = new Map();
   let waiting = 0, release;
@@ -253,12 +268,7 @@ test("changed control identity stops reservation before any GitHub write", async
 
 test("interrupted receipt synchronization keeps remote pending and prevents redelivery", async (t) => {
   const input = await setup(t);
-  const verifier = input.controlVerifier;
-  let reads = 0;
-  input.controlVerifier = async options => {
-    if (++reads === 3) throw new Error("synthetic control outage after delivery");
-    return verifier(options);
-  };
+  const verifier = interruptReceiptSync(input, "synthetic control outage after delivery");
   const receipt = await publishProvenanceStatuses(input);
   assert.equal(receipt.status, "blocked");
   assert.equal(receipt.published.length, 2);
@@ -283,18 +293,9 @@ test("mixed numeric and string duplicate IDs block replay", async t => {
 });
 test("fresh clone cannot redeliver after interrupted receipt synchronization", async t => {
  const input=await setup(t);
- const verifier=input.controlVerifier;
- let reads=0;
- input.controlVerifier=async options=>{
-  if(++reads===3) throw new Error("synthetic final receipt outage");
-  return verifier(options);
- };
+ const verifier=interruptReceiptSync(input,"synthetic final receipt outage");
  assert.equal((await publishProvenanceStatuses(input)).status,"blocked");
- const second=input.repo+"-recovery";
- await runGit({cwd:input.repo,args:["clone",input.repo,second]});
- await runGit({cwd:second,args:["branch","main","origin/main"]});
- await runGit({cwd:second,args:["remote","set-url","origin","https://github.com/example/tabellio.git"]});
- await runGit({cwd:second,args:["remote","add","control",input.control]});
+ const second=await clonePublicationRepo(input,"-recovery");
  const ref=`refs/tabellio/provenance-status-reservations/${digestObject({approvalId:input.approval.id})}`;
  const ledger=await GitJsonLedger.open({repoPath:second,ref});
  assert.equal((await ledger.read("receipt.json")).value,null);

@@ -2,10 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { ValidationRunner, latestValidationResult, validateValidationResult } from "../scripts/lib/validation-runner.mjs";
+import { latestValidationResult, validateValidationResult } from "../scripts/lib/validation-runner.mjs";
 import { digestObject } from "../scripts/lib/stack-operation.mjs";
-import { NativeGitStore } from "../scripts/providers/native-git-store.mjs";
-import { GitJsonLedger } from "../scripts/lib/git-json-ledger.mjs";
+import { createValidationRunner } from "./helpers/validation-fixture.mjs";
 import { runGit } from "../scripts/lib/git-process.mjs";
 import { createFeatureFixture, identityEnv } from "./helpers/git-fixture.mjs";
 import { installEntireFixture, fixtureCheckpoint } from "./helpers/entire-fixture.mjs";
@@ -20,9 +19,7 @@ test("synthetic metadata fixture: required gate resolves complete checkpoint evi
   await writeFile(join(fixture.seed, "tabellio.validation.json"), JSON.stringify(manifest));
   await runGit({ cwd: fixture.seed, args: ["add", "tabellio.validation.json"] });
   await runGit({ cwd: fixture.seed, args: ["commit", "-m", "Synthetic checkpoint claim", "-m", `Entire-Checkpoint: ${id}`], env: identityEnv() });
-  const store = await NativeGitStore.open(fixture.seed);
-  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
-  const runner = new ValidationRunner({ store, ledger });
+  const { ledger, runner } = await createValidationRunner(fixture.seed);
   const options = { repositoryId: "example/repository", commit: "HEAD", base: "main" };
   for (const [label, entries] of [
     ["missing", {}],

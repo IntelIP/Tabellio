@@ -17,6 +17,7 @@ import {
 import { NativeGitStore } from "../scripts/providers/native-git-store.mjs";
 import { createFeatureFixture as createGitFeatureFixture, identityEnv } from "./helpers/git-fixture.mjs";
 
+import { createValidationRunner } from "./helpers/validation-fixture.mjs";
 import { installEntireFixture, fixtureCheckpoint, fixtureCheckpointId } from "./helpers/entire-fixture.mjs";
 async function createFeatureFixture(t) {
   const fixture = await createGitFeatureFixture(t);
@@ -51,9 +52,7 @@ test("validation runner executes exact committed manifests and stores bounded re
   await commit(fixture.seed, "Add passing validation", "validation-pass");
   const passingHead = await head(fixture.seed);
 
-  const store = await NativeGitStore.open(fixture.seed);
-  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
-  const runner = new ValidationRunner({ store, ledger });
+  const { store, ledger, runner } = await createValidationRunner(fixture.seed);
   const repositoryId = await repositoryIdentity(store, "example/repository");
   const passed = await runner.run({
     repositoryId,
@@ -316,9 +315,7 @@ test("validation manifest rejects shell-like ambiguity and missing checkpoint ra
   ]), null, 2));
   await runGit({ args: ["add", "tabellio.validation.json"], cwd: fixture.seed });
   await runGit({ args: ["commit", "-m", "Manifest without checkpoint"], cwd: fixture.seed, env: identityEnv() });
-  const store = await NativeGitStore.open(fixture.seed);
-  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
-  const runner = new ValidationRunner({ store, ledger });
+  const { runner } = await createValidationRunner(fixture.seed);
   await assert.rejects(
     runner.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" }),
     /has no Entire checkpoint/,
@@ -332,9 +329,7 @@ test("validation runner terminates timed-out commands and skips remaining fail-f
     command("must-skip", [process.execPath, "-e", "process.exit(0)"]),
   ]), null, 2));
   await commit(fixture.seed, "Add timeout validation", "validation-timeout");
-  const store = await NativeGitStore.open(fixture.seed);
-  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
-  const runner = new ValidationRunner({ store, ledger });
+  const { runner } = await createValidationRunner(fixture.seed);
   const started = Date.now();
   const result = await runner.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" });
   assert.equal(result.result.status, "failed");
@@ -489,9 +484,7 @@ test("typed validation distinguishes product failure from blocked evidence", asy
     ),
   ], ["semantic"]), null, 2));
   await commit(fixture.seed, "Add failing semantic validation", "product-validation-fail");
-  const store = await NativeGitStore.open(fixture.seed);
-  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
-  const runner = new ValidationRunner({ store, ledger });
+  const { runner } = await createValidationRunner(fixture.seed);
   const failed = await runner.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" });
   assert.equal(failed.result.status, "failed");
   assert.equal(failed.result.validators[0].status, "failed");
