@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -51,6 +51,36 @@ test("lineage persists atomically, isolates projects, and replays from original 
   assert.equal(evaluateLineage(await reconnected.getLineage(query), { now: "2026-09-12T12:00:01Z" }).status, "passed");
   await adminCommand("psql", ["--dbname", databaseName, "--command", "UPDATE tabellio_lineages SET envelope = jsonb_set(envelope, '{candidate,headCommit}', '\"cccccccccccccccccccccccccccccccccccccccc\"')"]);
   await assert.rejects(() => reconnected.getLineage(query), /integrity/);
+});
+
+test("lineage insert plans reflect their single-row input without excessive compilation cost", { skip: !postgresAvailable }, async (t) => {
+  const databaseName = await createTestDatabase(t);
+  const databaseUrl = testDatabaseUrl(databaseName);
+  const store = new LocalProvenanceStore({ databaseUrl }); await store.migrate();
+  const root = await mkdtemp(join(tmpdir(), "tabellio-lineage-plan-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const reportPath = join(root, "plan.json"); const probe = join(root, "probe-psql.mjs");
+  await writeFile(probe, `#!/usr/bin/env node
+import { readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+const sql = readFileSync(0, 'utf8');
+const args = [...process.argv.slice(2), '--tuples-only', '--no-align'];
+const run = input => execFileSync(${JSON.stringify(process.env.TABELLIO_PSQL_BIN ?? "psql")}, args, { input, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 });
+const baselineSql = sql.replace('ANALYZE incoming_lineage;', '').replaceAll('INSERT INTO ', 'EXPLAIN (FORMAT JSON) INSERT INTO ').replace(/COMMIT;\\s*$/, 'ROLLBACK;');
+const baseline = JSON.parse('[' + run(baselineSql).trim().replace(/\\]\\s*\\[/g, '],[') + ']');
+const before = baseline.at(-1)[0];
+const after = JSON.parse(run(sql.replace('INSERT INTO tabellio_evidence_links', 'EXPLAIN (ANALYZE, FORMAT JSON) INSERT INTO tabellio_evidence_links')))[0];
+writeFileSync(${JSON.stringify(reportPath)}, JSON.stringify({ before: { cost: before.Plan['Total Cost'], jitPlanned: Boolean(before.JIT) }, after: { cost: after.Plan['Total Cost'], executionMs: after['Execution Time'], jitPlanned: Boolean(after.JIT) } }), { mode: 0o600 });
+`);
+  await chmod(probe, 0o700);
+  const candidate = candidateIdentity({ projectKey: "PLAN", repositoryId: "sample/plan", baseCommit: "a".repeat(40), headCommit: "b".repeat(40), mergeBase: "a".repeat(40) });
+  const lineage = assembleLineage({ candidate, observations: sampleObservations(candidate) });
+  await new LocalProvenanceStore({ databaseUrl, psqlBinary: probe }).putLineage(lineage);
+  const plan = JSON.parse(await readFile(reportPath, "utf8"));
+  t.diagnostic(JSON.stringify({ lineageInsertPlan: plan }));
+  assert.ok(plan.before.cost > 100000, "The unmeasured single-row input reproduces the excessive estimated cost.");
+  assert.ok(plan.after.cost < 100000, "Actual input cardinality keeps this short insert below the default JIT threshold.");
+  assert.deepEqual(await store.getLineage({ digest: lineage.digest, projectKey: candidate.projectKey, repositoryId: candidate.repositoryId }), lineage);
 });
 
 test("local provenance enforces metadata boundaries without PostgreSQL", function metadataBoundary() {

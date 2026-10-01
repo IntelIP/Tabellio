@@ -92,6 +92,7 @@ export class LocalProvenanceStore {
     const envelope = sqlParameter(JSON.stringify(lineage), variables);
     const sql = `BEGIN;
       CREATE TEMP TABLE incoming_lineage ON COMMIT DROP AS SELECT ${envelope}::jsonb AS data;
+      ANALYZE incoming_lineage;
       INSERT INTO tabellio_lineages (digest, candidate_id, project_key, repository_id, base_commit, head_commit, merge_base, envelope)
         SELECT data->>'digest', data->'candidate'->>'id', data->'candidate'->>'projectKey', data->'candidate'->>'repositoryId',
           data->'candidate'->>'baseCommit', data->'candidate'->>'headCommit', data->'candidate'->>'mergeBase', data
