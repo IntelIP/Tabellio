@@ -307,7 +307,16 @@ test("stable schema identifiers keep external references and released contracts 
     readFile(`${projectRoot}/schemas/validation-result.v0.5.schema.json`, "utf8").then(JSON.parse),
   ]);
   assert.equal(evidenceSchema.properties.externalActionPolicy.$ref, policySchema.$id);
-  assert.equal(releaseSchema.properties.control.properties.intent.$ref, controlSchema.$id);
+  assert.equal(releaseSchema.$id, "urn:tabellio:schema:release-operation:v0.1");
+  assert.deepEqual(releaseSchema.properties.schemaVersion.enum, ["tabellio-release-operation/v0.1", "tabellio-release-operation/v0.2"]);
+  assert.deepEqual(releaseSchema.properties.control.oneOf.map(item => item.$ref), ["#/$defs/remoteControl", "#/$defs/localControl"]);
+  assert.equal(releaseSchema.$defs.remoteControl.properties.intent.$ref, controlSchema.$id);
+  assert.equal(releaseSchema.$defs.localControl.properties.mode.const, "local");
+  assert.deepEqual(releaseSchema.$defs.localControl.required, ["mode", "refs"]);
+  assert.equal(releaseSchema.$defs.localControl.properties.refs.items.properties.localOid.$ref, "#/$defs/oid");
+  assert.equal(releaseSchema.allOf[0].if.properties.schemaVersion.const, "tabellio-release-operation/v0.2");
+  assert.equal(releaseSchema.allOf[0].then.properties.control.$ref, "#/$defs/localControl");
+  assert.equal(releaseSchema.allOf[0].else.properties.control.$ref, "#/$defs/remoteControl");
   assert.equal(reviewAlias.$ref, "review-cycle.v0.3.schema.json");
   assert.equal(reviewV2.$id, "urn:tabellio:schema:review-cycle:v0.2");
   assert.equal(reviewV3.$id, "urn:tabellio:schema:review-cycle:v0.3");

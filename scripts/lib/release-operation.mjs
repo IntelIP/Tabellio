@@ -19,19 +19,20 @@ export function createReleaseIntent({
   pullRequest,
   controlIntent,
   controlRepository,
+  localControlRefs = null,
   validation,
   release,
   createdAt = new Date().toISOString(),
 }) {
   const unsigned = {
-    schemaVersion: RELEASE_OPERATION_VERSION,
+    schemaVersion: localControlRefs ? "tabellio-release-operation/v0.2" : RELEASE_OPERATION_VERSION,
     repository,
     version,
     tag: `v${version}`,
     revision,
     pullRequest,
     code: { remote: "origin", branch: "main" },
-    control: { repository: controlRepository, intent: controlIntent },
+    control: localControlRefs ? { mode: "local", refs: localControlRefs } : { repository: controlRepository, intent: controlIntent },
     validation,
     release,
     createdAt,
@@ -48,7 +49,7 @@ export function validateReleaseIntent(value) {
     "schemaVersion", "repository", "version", "tag", "revision", "pullRequest", "code",
     "control", "validation", "release", "createdAt", "integrity",
   ], "intent");
-  contract.equals(value.schemaVersion, RELEASE_OPERATION_VERSION, "intent.schemaVersion");
+  contract.member(value.schemaVersion, [RELEASE_OPERATION_VERSION, "tabellio-release-operation/v0.2"], "intent.schemaVersion");
 
   contract.object(value.repository, "intent.repository");
   contract.exactKeys(value.repository, ["id", "owner", "name"], "intent.repository");
@@ -79,16 +80,28 @@ export function validateReleaseIntent(value) {
   contract.equals(value.code.branch, "main", "intent.code.branch");
 
   contract.object(value.control, "intent.control");
-  contract.exactKeys(value.control, ["repository", "intent"], "intent.control");
-  contract.object(value.control.repository, "intent.control.repository");
-  contract.exactKeys(value.control.repository, ["id"], "intent.control.repository");
-  contract.string(value.control.repository.id, "intent.control.repository.id");
-  assertSeparateControlRepository(value.repository, value.control.repository);
-  validateControlRefIntent(value.control.intent);
-  contract.equals(value.control.intent.operation, "publish", "intent.control.intent.operation");
-  contract.equals(value.control.intent.remote, "control", "intent.control.intent.remote");
-  contract.equals(value.control.intent.repository.id, value.repository.id, "intent.control.intent.repository.id");
-  assertCompleteReleaseControlRefs(value.control.intent.refs);
+  if (value.schemaVersion === "tabellio-release-operation/v0.2") {
+    contract.exactKeys(value.control, ["mode", "refs"], "intent.control");
+    contract.equals(value.control.mode, "local", "intent.control.mode");
+    if (!Array.isArray(value.control.refs)) throw new Error("intent.control.refs must be an array.");
+    assertCompleteReleaseControlRefs(value.control.refs);
+    for (const ref of value.control.refs) {
+      contract.object(ref, "intent.control.refs entry");
+      contract.exactKeys(ref, ["name", "localOid"], "intent.control.refs entry");
+      contract.oid(ref.localOid, "intent.control.refs.localOid");
+    }
+  } else {
+    contract.exactKeys(value.control, ["repository", "intent"], "intent.control");
+    contract.object(value.control.repository, "intent.control.repository");
+    contract.exactKeys(value.control.repository, ["id"], "intent.control.repository");
+    contract.string(value.control.repository.id, "intent.control.repository.id");
+    assertSeparateControlRepository(value.repository, value.control.repository);
+    validateControlRefIntent(value.control.intent);
+    contract.equals(value.control.intent.operation, "publish", "intent.control.intent.operation");
+    contract.equals(value.control.intent.remote, "control", "intent.control.intent.remote");
+    contract.equals(value.control.intent.repository.id, value.repository.id, "intent.control.intent.repository.id");
+    assertCompleteReleaseControlRefs(value.control.intent.refs);
+  }
 
   contract.object(value.validation, "intent.validation");
   contract.exactKeys(value.validation, ["runId", "resultVersion", "status", "headCommit"], "intent.validation");

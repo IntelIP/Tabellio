@@ -1,30 +1,69 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:tabellio:schema:platform:v0.3",
+  "$id": "urn:tabellio:schema:platform:v0.4",
   "title": "Tabellio Platform Configuration",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "codeStorage", "workflow", "ledger", "validation", "reviews"],
+  "required": [
+    "schemaVersion",
+    "codeStorage",
+    "workflow",
+    "ledger",
+    "validation",
+    "reviews"
+  ],
   "properties": {
-    "schemaVersion": { "const": "tabellio-platform/v0.3" },
+    "schemaVersion": {
+      "enum": [
+        "tabellio-platform/v0.3",
+        "tabellio-platform/v0.4"
+      ]
+    },
     "codeStorage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["provider", "remoteName", "publicSurface", "codeRef", "allowedRefPrefixes"],
+      "required": [
+        "provider",
+        "remoteName",
+        "publicSurface",
+        "codeRef",
+        "allowedRefPrefixes"
+      ],
       "properties": {
-        "provider": { "const": "github" },
-        "remoteName": { "const": "origin" },
-        "publicSurface": { "const": "code-and-thin-pr" },
-        "codeRef": { "const": "refs/heads/main" },
+        "provider": {
+          "const": "github"
+        },
+        "remoteName": {
+          "const": "origin"
+        },
+        "publicSurface": {
+          "const": "code-and-thin-pr"
+        },
+        "codeRef": {
+          "const": "refs/heads/main"
+        },
         "allowedRefPrefixes": {
           "type": "array",
           "minItems": 2,
           "maxItems": 2,
           "uniqueItems": true,
-          "items": { "enum": ["refs/heads/", "refs/tags/"] },
+          "items": {
+            "enum": [
+              "refs/heads/",
+              "refs/tags/"
+            ]
+          },
           "allOf": [
-            { "contains": { "const": "refs/heads/" } },
-            { "contains": { "const": "refs/tags/" } }
+            {
+              "contains": {
+                "const": "refs/heads/"
+              }
+            },
+            {
+              "contains": {
+                "const": "refs/tags/"
+              }
+            }
           ]
         }
       }
@@ -32,23 +71,67 @@
     "workflow": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stackManager", "controlState", "controlProvider", "controlRemoteName", "publishControlRefsToCodeStorage", "controlRefs"],
+      "required": [
+        "stackManager",
+        "controlState",
+        "controlProvider",
+        "controlRemoteName",
+        "publishControlRefsToCodeStorage",
+        "controlRefs"
+      ],
       "properties": {
-        "stackManager": { "const": "git-spice" },
-        "controlState": { "const": "external" },
-        "controlProvider": { "const": "github" },
-        "controlRemoteName": { "const": "control" },
-        "publishControlRefsToCodeStorage": { "const": false },
+        "stackManager": {
+          "const": "git-spice"
+        },
+        "controlState": {
+          "enum": [
+            "local",
+            "external"
+          ]
+        },
+        "controlProvider": {
+          "enum": [
+            "local",
+            "github"
+          ]
+        },
+        "controlRemoteName": {
+          "enum": [
+            null,
+            "control"
+          ]
+        },
+        "publishControlRefsToCodeStorage": {
+          "const": false
+        },
         "controlRefs": {
           "type": "array",
           "minItems": 3,
           "maxItems": 3,
           "uniqueItems": true,
-          "items": { "enum": ["refs/tabellio/reviews", "refs/tabellio/validations", "refs/heads/entire/checkpoints/v1"] },
+          "items": {
+            "enum": [
+              "refs/tabellio/reviews",
+              "refs/tabellio/validations",
+              "refs/heads/entire/checkpoints/v1"
+            ]
+          },
           "allOf": [
-            { "contains": { "const": "refs/tabellio/reviews" } },
-            { "contains": { "const": "refs/tabellio/validations" } },
-            { "contains": { "const": "refs/heads/entire/checkpoints/v1" } }
+            {
+              "contains": {
+                "const": "refs/tabellio/reviews"
+              }
+            },
+            {
+              "contains": {
+                "const": "refs/tabellio/validations"
+              }
+            },
+            {
+              "contains": {
+                "const": "refs/heads/entire/checkpoints/v1"
+              }
+            }
           ]
         }
       }
@@ -56,33 +139,214 @@
     "ledger": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["provider", "storage", "checkpointRef"],
+      "required": [
+        "provider",
+        "storage",
+        "checkpointRef"
+      ],
       "properties": {
-        "provider": { "const": "entire" },
-        "storage": { "const": "external" },
-        "checkpointRef": { "const": "refs/heads/entire/checkpoints/v1" }
+        "provider": {
+          "const": "entire"
+        },
+        "storage": {
+          "enum": [
+            "local",
+            "external"
+          ]
+        },
+        "checkpointRef": {
+          "const": "refs/heads/entire/checkpoints/v1"
+        }
       }
     },
     "validation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["runner", "manifest", "storage", "resultRef"],
+      "required": [
+        "runner",
+        "manifest",
+        "storage",
+        "resultRef"
+      ],
       "properties": {
-        "runner": { "const": "tabellio-validate" },
-        "manifest": { "type": "string", "minLength": 1 },
-        "storage": { "const": "external" },
-        "resultRef": { "const": "refs/tabellio/validations" }
+        "runner": {
+          "const": "tabellio-validate"
+        },
+        "manifest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "storage": {
+          "enum": [
+            "local",
+            "external"
+          ]
+        },
+        "resultRef": {
+          "const": "refs/tabellio/validations"
+        }
       }
     },
     "reviews": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["provider", "storage", "stateRef"],
+      "required": [
+        "provider",
+        "storage",
+        "stateRef"
+      ],
       "properties": {
-        "provider": { "const": "tabellio" },
-        "storage": { "const": "external" },
-        "stateRef": { "const": "refs/tabellio/reviews" }
+        "provider": {
+          "const": "tabellio"
+        },
+        "storage": {
+          "enum": [
+            "local",
+            "external"
+          ]
+        },
+        "stateRef": {
+          "const": "refs/tabellio/reviews"
+        }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "const": "tabellio-platform/v0.3"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "workflow": {
+            "properties": {
+              "controlState": {
+                "const": "external"
+              },
+              "controlProvider": {
+                "const": "github"
+              },
+              "controlRemoteName": {
+                "const": "control"
+              }
+            }
+          },
+          "ledger": {
+            "properties": {
+              "storage": {
+                "const": "external"
+              }
+            }
+          },
+          "validation": {
+            "properties": {
+              "storage": {
+                "const": "external"
+              }
+            }
+          },
+          "reviews": {
+            "properties": {
+              "storage": {
+                "const": "external"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workflow": {
+            "properties": {
+              "controlState": {
+                "const": "local"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "workflow": {
+            "properties": {
+              "controlState": {
+                "const": "local"
+              },
+              "controlProvider": {
+                "const": "local"
+              },
+              "controlRemoteName": {
+                "type": "null"
+              }
+            }
+          },
+          "ledger": {
+            "properties": {
+              "storage": {
+                "const": "local"
+              }
+            }
+          },
+          "validation": {
+            "properties": {
+              "storage": {
+                "const": "local"
+              }
+            }
+          },
+          "reviews": {
+            "properties": {
+              "storage": {
+                "const": "local"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "workflow": {
+            "properties": {
+              "controlState": {
+                "const": "external"
+              },
+              "controlProvider": {
+                "const": "github"
+              },
+              "controlRemoteName": {
+                "const": "control"
+              }
+            }
+          },
+          "ledger": {
+            "properties": {
+              "storage": {
+                "const": "external"
+              }
+            }
+          },
+          "validation": {
+            "properties": {
+              "storage": {
+                "const": "external"
+              }
+            }
+          },
+          "reviews": {
+            "properties": {
+              "storage": {
+                "const": "external"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

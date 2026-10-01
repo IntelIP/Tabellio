@@ -404,11 +404,16 @@ test("malformed record JSON never leaks input through CLI diagnostics", { skip: 
   });
 });
 
-test("valid lineages above two MiB remain readable after persistence", { skip: !postgresAvailable }, async (t) => {
+async function createLineageFixture(t) {
   const name = await createTestDatabase(t);
   const store = new LocalProvenanceStore({ databaseUrl: testDatabaseUrl(name) });
   await store.migrate();
   const candidate = candidateIdentity({ projectKey: "SAMPLE", repositoryId: "sample/repository", baseCommit: "a".repeat(40), headCommit: "b".repeat(40), mergeBase: "a".repeat(40) });
+  return { name, store, candidate };
+}
+
+test("valid lineages above two MiB remain readable after persistence", { skip: !postgresAvailable }, async (t) => {
+  const { name, store, candidate } = await createLineageFixture(t);
   const item = sampleObservations(candidate).find(item => item.kind === "validation");
   const observations = Array.from({ length: 40 }, (_, index) => ({ ...item, sourceId: `build-${index}`, metadata: { note: "x".repeat(60000) } }));
   const lineage = assembleLineage({ candidate, observations });
@@ -421,6 +426,18 @@ test("valid lineages above two MiB remain readable after persistence", { skip: !
 
 test("sparse payload arrays are rejected before canonicalization", () => {
   for (const refs of [Array(1), [, "valid"], ["valid", ,]]) assert.throws(() => normalizeRecord({ ...syntheticRecord(), payload: { refs } }), /sparse arrays/);
+});
+
+test("a valid same-scope substituted lineage cannot satisfy another digest", { skip: !postgresAvailable }, async (t) => {
+  const { name, store, candidate } = await createLineageFixture(t);
+  const original = assembleLineage({ candidate, observations: sampleObservations(candidate) });
+  const changedCandidate = candidateIdentity({ ...candidate, headCommit: "c".repeat(40) });
+  const substituted = assembleLineage({ candidate: changedCandidate, observations: sampleObservations(changedCandidate) });
+  assert.notEqual(original.digest, substituted.digest);
+  await store.putLineage(original);
+  const envelopeHex = Buffer.from(JSON.stringify(substituted), "utf8").toString("hex");
+  await adminCommand("psql", ["--dbname", name, "--command", `UPDATE tabellio_lineages SET envelope = convert_from(decode('${envelopeHex}', 'hex'), 'UTF8')::jsonb WHERE digest = '${original.digest}'`]);
+  await assert.rejects(store.getLineage({ digest: original.digest, projectKey: candidate.projectKey, repositoryId: candidate.repositoryId }), /digest integrity mismatch/);
 });
 
 test("stored record corruption is rejected on read", { skip: !postgresAvailable }, async (t) => {

@@ -29,18 +29,34 @@ GitHub `origin` is the canonical code repository and merge authority:
 
 Do not maintain a second merge authority. Independent squash or rebase merges create different histories even when file content matches.
 
-## Control-State Publication
+## Local Evidence And Optional Publication
 
-Review cycles, validation results, and Entire checkpoints are published together with `git push --atomic`, explicit force-with-lease expectations, and a one-use approval. Publication permits refs that were already unchanged at planning while rejecting partial publication, non-fast-forward updates, divergence, changed local or remote object IDs, expired approvals, and reused approval IDs. Release retries derive a fresh one-use control approval from the still-active release approval after re-verifying the exact repositories and OIDs.
+The v0.4 default retains genuine Entire checkpoints, review history and validation
+results locally. It requires no private GitHub control repository. Automatic
+Entire pushing stays disabled. Local release intents bind the three evidence-ref
+object IDs; execution rechecks them and reports verification, not publication.
 
-Automatic Entire session pushes to `origin` remain disabled. The approved control-ref transport publishes `refs/heads/entire/checkpoints/v1` with the review and validation refs only to a separately configured private GitHub repository. Planning and execution reject `origin`, reject repository aliases, and recheck private visibility immediately before publication.
+Optional explicit private GitHub transport retains atomic compare-and-swap
+publication, short-lived approvals and divergence rejection. Legacy v0.3 configs
+and remote release intents remain supported. The standalone transport's remote
+alias is not a destination identity guarantee; review the effective destination
+and privacy before authorizing it.
 
-Release planning is local and credentialed-read-only: it requires clean merged `main`, runs exact-head commands from the platform-configured manifest, binds checkpoint evidence to the exact pre-merge pull-request head, requires durable proof that that head reached `ready`, rejects new terminal feedback or failed checks, binds the effective fetch and push targets for both GitHub remotes, and snapshots the resulting control OIDs. Remote publication requires a separate release approval capped at one hour. Execution re-verifies case-normalized code identity plus control identity and privacy before every write, writes an atomic local receipt before each phase, and reruns idempotent reconciliation for control refs, exact annotated-tag objects, and releases after failures or prior success. Pull-request merge remains a separate explicit action because an approval cannot safely bind a squash commit that does not exist yet.
+Status publication uses one customer-owned bare Git authority selected in the
+approved intent. Every publishing process must use it. Its pending reservation
+is durable before delivery, so a crash or uncertain response does not permit a
+repeat. Separate authorities do not coordinate. Treat the authority owner as
+trusted: copying or rolling back its history can remove consumed approvals.
+After restoring a backup, fence publication until outstanding approvals expire
+or reconcile every potentially delivered status before issuing new approvals.
+Approval JSON binds content; it does not authenticate the person named in it.
+Keep approval creation and publishing under the customer's trusted-worker access
+boundary. Multi-user authorization is a separate hardening phase.
 
 ## Production Checklist
 
-- Back up the private GitHub control repository and test restore drills.
+- Back up local evidence refs, the publication authority and PostgreSQL data; test each restoration separately.
 - Isolate validation workers for untrusted code; detached worktrees are not sandboxes.
-- Scope code-storage and private-control GitHub credentials per repository and keep them out of URLs, arguments, and logs.
+- Scope publication and optional private-remote GitHub credentials per repository and keep them out of URLs, arguments, and logs.
 - Monitor failed receipts, stale cross-host locks, validation duration, queue depth, and ref divergence.
-- Reconcile and republish control refs before retrying any divergence failure.
+- Reconcile divergent local evidence before retrying. Republish only when optional remote mode is explicitly selected and its operation is approved.

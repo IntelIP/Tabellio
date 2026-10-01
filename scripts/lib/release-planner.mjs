@@ -8,7 +8,7 @@ import { GitJsonLedger } from "./git-json-ledger.mjs";
 import { effectiveGitHubRepository, sameGitHubRepository } from "./github-repository.mjs";
 import { runGit } from "./git-process.mjs";
 import { runPreflight } from "./preflight.mjs";
-import { validatePlatformConfig } from "./platform-config.mjs";
+import { platformControlMode, validatePlatformConfig } from "./platform-config.mjs";
 import { createReleaseIntent } from "./release-operation.mjs";
 import { ReviewCycleManager, reviewCycleHasReleaseReadiness } from "./review-cycle.mjs";
 import { ValidationRunner } from "./validation-runner.mjs";
@@ -24,7 +24,7 @@ export async function planRelease({
   version,
   notesPath,
   title = `Tabellio v${version}`,
-  controlRemote = "control",
+  controlRemote = null,
   manifestPath = "tabellio.validation.json",
   runnerId = "tabellio-release",
   token,
@@ -40,8 +40,10 @@ export async function planRelease({
   const store = await NativeGitStore.open(resolve(repoPath));
   const preflight = await preflightRunner({ repoPath: store.repoPath, profile: "release", ghBinary, commandRunner, controlRemote });
   assertReadyPreflight(preflight);
-  await assertPlatformManifest(store, manifestPath);
-  const repositories = await bindReleaseRepositories(store, { owner, repo, explicitRepositoryId, controlRemote, remoteRepositoryReader });
+  const platform = await assertPlatformManifest(store, manifestPath);
+  const localControl = platformControlMode(platform) === "local";
+  const effectiveControlRemote = localControl ? null : (controlRemote ?? platform.workflow.controlRemoteName);
+  const repositories = await bindReleaseRepositories(store, { owner, repo, explicitRepositoryId, controlRemote: effectiveControlRemote, remoteRepositoryReader, localControl });
   const repositoryId = repositories.code.identity;
   const evidence = await loadReleaseEvidence({ store, notesPath, ghBinary, owner, repo, number, commandRunner });
   const { headCommit, parentCommit, notesSource, pr } = validateReleaseEvidence(evidence, { version, number });
@@ -72,14 +74,16 @@ export async function planRelease({
     runnerId,
     now,
   });
-  const controlIntent = await planControlPublication({ store, repositoryId, controlRemote, now });
+  const controlIntent = localControl ? null : await planControlPublication({ store, repositoryId, controlRemote: effectiveControlRemote, now });
+  const localControlRefs = localControl ? await Promise.all(["refs/tabellio/reviews", "refs/tabellio/validations", "refs/heads/entire/checkpoints/v1"].map(async (name) => ({ name, localOid: await store.resolveRef(name) }))) : null;
   return createReleaseIntent({
     repository: { id: repositoryId, owner, name: repo },
     version,
     revision: { commit: headCommit, parent: parentCommit },
     pullRequest: { number, headCommit: pr.headRefOid, mergeCommit: pr.mergeCommit.oid },
     controlIntent,
-    controlRepository: { id: repositories.control.identity },
+    controlRepository: localControl ? null : { id: repositories.control.identity },
+    localControlRefs,
     validation: {
       runId: validation.result.runId,
       resultVersion: validation.version,
@@ -98,21 +102,22 @@ function validatePlanInput({ owner, repo, number, version, notesPath, controlRem
   contract.semver(version, "version");
   contract.safeRelativePath(notesPath, "notesPath");
   contract.safeRelativePath(manifestPath, "manifestPath");
-  contract.equals(controlRemote, "control", "controlRemote");
+  contract.member(controlRemote, [null, "control"], "controlRemote");
 }
 
 async function assertPlatformManifest(store, manifestPath) {
   const source = await runGit({ args: ["show", "HEAD:tabellio.platform.json"], cwd: store.repoPath });
   const platform = validatePlatformConfig(JSON.parse(source.stdout));
   contract.equals(manifestPath, platform.validation.manifest, "manifestPath");
+  return platform;
 }
 
-async function bindReleaseRepositories(store, { owner, repo, explicitRepositoryId, controlRemote, remoteRepositoryReader }) {
+async function bindReleaseRepositories(store, { owner, repo, explicitRepositoryId, controlRemote, remoteRepositoryReader, localControl }) {
   const [origin, control] = await Promise.all([
     remoteRepositoryReader(store, "origin"),
-    remoteRepositoryReader(store, controlRemote),
+    localControl ? Promise.resolve(null) : remoteRepositoryReader(store, controlRemote),
   ]);
-  if (sameGitHubRepository(origin, control)) throw new Error("Control repository must differ from the code repository.");
+  if (control && sameGitHubRepository(origin, control)) throw new Error("Control repository must differ from the code repository.");
   assertRequestedRepository(origin, owner, repo);
   assertExplicitRepositoryId(origin, explicitRepositoryId);
   return { code: origin, control };

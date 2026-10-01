@@ -21,3 +21,11 @@ export function platformFixture() {
     reviews: { provider: "tabellio", storage: "external", stateRef: "refs/tabellio/reviews" },
   };
 }
+
+export function localPlatformFixture() {
+  const value = platformFixture();
+  value.schemaVersion = "tabellio-platform/v0.4";
+  Object.assign(value.workflow, { controlState: "local", controlProvider: "local", controlRemoteName: null });
+  for (const section of ["ledger", "validation", "reviews"]) value[section].storage = "local";
+  return value;
+}

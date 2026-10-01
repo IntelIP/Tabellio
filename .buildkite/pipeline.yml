@@ -53,8 +53,6 @@ steps:
     timeout_in_minutes: 50
     artifact_paths:
       - "tabellio-validation-result.json"
-      - ".artifacts/tabellio/validation-ref.bundle"
-      - ".artifacts/tabellio/validation-ref.sha"
     plugins:
       - mise#v1.1.4:
           version: "2026.2.11"

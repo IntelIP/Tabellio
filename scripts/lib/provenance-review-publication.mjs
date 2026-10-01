@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { runExternalCommand } from "./external-command.mjs";
 import { runGit } from "./git-process.mjs";
+import { assertExternalStateRoot } from "./external-state-root.mjs";
 import { contract } from "./contract-checks.mjs";
 import { digestObject } from "./stack-operation.mjs";
 import { validateOperationApproval } from "./approval-validation.mjs";
@@ -17,15 +20,49 @@ const FAILED_DELIVERY = "Publication failed or became uncertain. Inspect GitHub 
 export function createProvenanceStatusIntent(lineage, options) {
   const result = buildProvenanceReviewResult(lineage, options);
   if (result.github.length !== 2) throw new Error("A GitHub repository identity is required.");
-  const unsigned = { schemaVersion: INTENT, createdAt: result.evaluatedAt, candidate: result.currentCandidate, lineageDigest: lineage.digest, reportUrl: options.reportUrl ?? null, reservationRemote: "control", statuses: result.github };
+  const unsigned = { schemaVersion: INTENT, createdAt: result.evaluatedAt, candidate: result.currentCandidate, lineageDigest: lineage.digest, reportUrl: options.reportUrl ?? null, reservationRemote: reservationAuthority(options), statuses: result.github };
   return { ...unsigned, integrity: { algorithm: "sha256", digest: digestObject(unsigned) } };
+}
+
+// The authority is part of the approval-bound intent: approval cannot be moved to a
+// fresh per-clone store after an uncertain publication. All publishing clones
+// must use the same customer-owned authority; local storage is not distributed.
+function reservationAuthority(options) {
+  const path = options.publicationStore ?? process.env.TABELLIO_PUBLICATION_STORE;
+  if (path !== undefined) {
+    if (typeof path !== "string" || !isAbsolute(path)) throw new Error("Publication store must be an existing absolute path to a customer-owned bare Git repository.");
+    return `local:${realpathSync(path)}`;
+  }
+  const authority = options.reservationRemote ?? "local";
+  validateReservationAuthority(authority);
+  return authority;
+}
+
+function validateReservationAuthority(authority) {
+  if (authority === "control" || authority === "local") return;
+  if (typeof authority !== "string" || !authority.startsWith("local:") || !isAbsolute(authority.slice(6)) || /[\0-\x1f]/.test(authority)) {
+    throw new Error("Reservation authority must be local, an absolute local store, or the explicitly selected control remote.");
+  }
+}
+
+async function localReservationLedger(repo, authority, ref) {
+  if (authority === "local") throw new Error("Configure TABELLIO_PUBLICATION_STORE to an existing customer-owned bare Git repository shared by every publishing process before approving publication.");
+  const path = authority.slice(6);
+  if (realpathSync(path) !== path) throw new Error("Publication authority path changed; create and approve a new intent.");
+  const bare = await runGit({ cwd: path, args: ["rev-parse", "--is-bare-repository"] });
+  if (bare.stdout.trim() !== "true") throw new Error("Publication authority must be a separate bare Git repository, not the public code checkout or its .git directory.");
+  const codeCommon = await runGit({ cwd: repo, args: ["rev-parse", "--path-format=absolute", "--git-common-dir"] });
+  if (realpathSync(codeCommon.stdout.trim()) === path) throw new Error("Publication authority must be separate from the public code repository.");
+  assertExternalStateRoot(realpathSync(repo), path, "Publication authority");
+  assertExternalStateRoot(realpathSync(codeCommon.stdout.trim()), path, "Publication authority");
+  return GitJsonLedger.open({ repoPath: path, ref });
 }
 
 function validateIntent(value) {
   contract.object(value, "intent");
   contract.exactKeys(value, ["schemaVersion", "createdAt", "candidate", "lineageDigest", "reportUrl", "reservationRemote", "statuses", "integrity"], "intent");
   contract.equals(value.schemaVersion, INTENT, "intent.schemaVersion");
-  contract.equals(value.reservationRemote, "control", "intent.reservationRemote");
+  validateReservationAuthority(value.reservationRemote);
   contract.date(value.createdAt, "intent.createdAt");
   contract.sha256(value.lineageDigest, "intent.lineageDigest");
   contract.equals(digestObject(value.candidate), digestObject(candidateIdentity(value.candidate)), "intent.candidate");
@@ -103,6 +140,17 @@ export async function verifyPrivateControl({ repo, remote = "control", commandRu
   return control.key;
 }
 
+async function synchronizeReservation({ local, repo, remote, ref, version, expectedVersion, controlVerifier, controlKey }) {
+  if (local) return true;
+  try {
+    contract.equals(await controlVerifier({ repo, remote }), controlKey, "control repository before push");
+    await runGit({ cwd: repo, args: ["push", `--force-with-lease=${ref}:${expectedVersion}`, remote, `${version}:${ref}`] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function publishProvenanceStatuses({ repo, lineage, intent, approval, publisher, now, base = "main", head = "HEAD", controlVerifier = verifyPrivateControl }) {
   contract.date(now, "publication time");
   validateOperationApproval(approval, intent, { schemaVersion: APPROVAL, validateIntent, now: new Date(now) });
@@ -115,11 +163,12 @@ export async function publishProvenanceStatuses({ repo, lineage, intent, approva
   const remote = await effectiveGitHubRepository(store, "origin");
   const target = `${intent.statuses[0].owner}/${intent.statuses[0].repo}`.toLowerCase();
   contract.equals(remote.key, target, "GitHub origin identity");
-  const controlKey = await controlVerifier({ repo, remote: intent.reservationRemote });
+  const local = intent.reservationRemote !== "control";
+  const controlKey = local ? null : await controlVerifier({ repo, remote: intent.reservationRemote });
   const ref = `refs/tabellio/provenance-status-reservations/${digestObject({ approvalId: approval.id })}`;
-  const ledger = await GitJsonLedger.open({ repoPath: repo, ref });
+  const ledger = local ? await localReservationLedger(store.repoPath, intent.reservationRemote, `refs/tabellio/provenance-status-reservations/${digestObject({ repository: remote.key, approvalId: approval.id })}`) : await GitJsonLedger.open({ repoPath: repo, ref });
   const path = "receipt.json";
-  const remoteVersion = (await runGit({ cwd: repo, args: ["ls-remote", "--refs", intent.reservationRemote, ref] })).stdout.trim().split(/\s+/)[0];
+  const remoteVersion = local ? "" : (await runGit({ cwd: repo, args: ["ls-remote", "--refs", intent.reservationRemote, ref] })).stdout.trim().split(/\s+/)[0];
   let prior = await ledger.read(path);
   if (remoteVersion) {
     await runGit({ cwd: repo, args: ["fetch", "--no-write-fetch-head", intent.reservationRemote, ref] });
@@ -132,22 +181,18 @@ export async function publishProvenanceStatuses({ repo, lineage, intent, approva
     if (prior.value.status !== "pending") return prior.value;
     return { ...prior.value, status: "blocked", reason: "An earlier attempt is unresolved. Inspect GitHub before authorizing another attempt." };
   }
-  // Remote CAS reserves one publisher across clones before GitHub delivery.
-  // A local pending receipt also prevents retry after an uncertain Git push.
+  // Git update-ref CAS reserves one publisher at the shared authority before
+  // delivery. A pending receipt is durable and never automatically retried.
+  // Remote mode additionally uses receive-side CAS across independent clones.
   const receipt = { schemaVersion: "tabellio-provenance-status-receipt/v0.1", approvalId: approval.id, reservationId: randomUUID(), intentDigest: intent.integrity.digest, candidateId: candidate.id, attemptedAt: now, status: "pending", published: [] };
   const attempt = await ledger.write(path, receipt, { expectedVersion: prior.version });
-  try {
-    contract.equals(await controlVerifier({ repo, remote: intent.reservationRemote }), controlKey, "control repository before push");
-    await runGit({ cwd: repo, args: ["push", `--force-with-lease=${ref}:`, intent.reservationRemote, `${attempt.version}:${ref}`] });
-  } catch {
+  const synchronization = { local, repo, remote: intent.reservationRemote, ref, controlVerifier, controlKey };
+  if (!await synchronizeReservation({ ...synchronization, version: attempt.version, expectedVersion: "" })) {
     throw new Error("Approval reservation failed or is uncertain. Inspect the control remote before a new approval.");
   }
   const completed = { ...receipt, ...await sendStatuses({ repo, intent, base, head, publisher }) };
   const finished = await ledger.write(path, completed, { expectedVersion: attempt.version });
-  try {
-    contract.equals(await controlVerifier({ repo, remote: intent.reservationRemote }), controlKey, "control repository before push");
-    await runGit({ cwd: repo, args: ["push", `--force-with-lease=${ref}:${attempt.version}`, intent.reservationRemote, `${finished.version}:${ref}`] });
-  } catch {
+  if (!await synchronizeReservation({ ...synchronization, version: finished.version, expectedVersion: attempt.version })) {
     return { ...completed, status: "blocked", reason: "Delivery receipt synchronization is uncertain. Inspect GitHub and the control remote; do not retry." };
   }
   return completed;

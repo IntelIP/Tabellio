@@ -13,7 +13,7 @@ import {
   readRemoteRefOid,
   sameGitHubRepository,
 } from "./github-repository.mjs";
-import { validatePlatformConfig } from "./platform-config.mjs";
+import { platformControlMode, validatePlatformConfig } from "./platform-config.mjs";
 import { repositoryIdentity } from "./repository-identity.mjs";
 import { NativeGitStore } from "../providers/native-git-store.mjs";
 
@@ -125,7 +125,8 @@ export async function runPreflight({
     ? checkCodexHookTrust({ effectiveHooks: codexEffectiveHooks, managedEvents: codexManagedEvents })
     : blocked("Codex configuration validity is unproven.", "Correct the Codex configuration, then rerun preflight."));
 
-  await record(checks, "github-auth", async () => {
+  const platform = store ? await readPlatformConfig(store).catch(() => null) : null;
+  if (profile === "release" || (platform && platformControlMode(platform) === "remote") || controlRemote) await record(checks, "github-auth", async () => {
     await commandRunner({ binary: ghBinary, args: ["auth", "status", "--hostname", "github.com"], cwd: resolvedRepo, timeoutMs: 30_000 });
     return passed("GitHub CLI authenticated for github.com.");
   });
@@ -368,6 +369,11 @@ async function checkEntireMetadata(store, options) {
 
 async function checkEntireCheckpointTransport(store, remoteRepositoryReader) {
   const settings = await readEntireTransportSettings(store);
+  if (platformControlMode(settings.platform) === "local") {
+    const automatic = automaticCheckpointPushBlocker(settings.local, settings.project);
+    if (automatic) return automatic;
+    return null;
+  }
   const remotes = configuredCheckpointRemotes(settings.local, settings.project);
   if (remotes.blocker) return remotes.blocker;
   const control = await remoteRepositoryReader(store, settings.platform.workflow.controlRemoteName);
@@ -479,6 +485,14 @@ async function readJsonIfExists(path) {
 async function checkEntireMetadataBranch(store, remoteRefReader, profile) {
   const platform = await readPlatformConfig(store);
   const localRef = platform.ledger.checkpointRef;
+  if (platformControlMode(platform) === "local") {
+    if (!(await store.hasRef(localRef))) return profile === "agent"
+      ? passed("Local checkpoint storage is not initialized; first real agent checkpoint may create it.")
+      : blocked("Local checkpoint metadata branch is missing.", "Create a genuine checkpoint before release preflight.");
+    const result = await checkEntireMetadataContents(store, localRef, { allowEmpty: profile === "agent" });
+    if (result.status === "blocked") return result;
+    return passed(`${result.detail} Local mode does not contact or publish to configured checkpoint remotes; automatic pushing is disabled.`);
+  }
   if (!(await store.hasRef(localRef))) {
     return checkMissingMetadataBranch(store, platform, localRef, remoteRefReader, profile);
   }
@@ -537,13 +551,13 @@ async function checkEntireMetadataContents(store, localRef, { allowEmpty }) {
   const invalidPath = await firstInvalidMetadataPath(store, localRef, metadataPaths, files);
   return invalidPath
     ? blocked(`Entire checkpoint metadata is invalid: ${invalidPath}.`, "Repair the checkpoint metadata branch explicitly, then rerun preflight.")
-    : passed("Live remote Entire metadata is contained locally and checkpoint contents are valid.");
+    : passed("Entire checkpoint contents are valid.");
 }
 
 function emptyMetadataResult(files, allowEmpty) {
   if (files.length !== 0) return null;
   return allowEmpty
-    ? passed("Live remote Entire metadata is contained locally; initialized agent metadata is empty.")
+    ? passed("Initialized agent checkpoint metadata is empty.")
     : blocked("Entire metadata branch contains no checkpoint metadata.", "Create a checkpoint before release preflight, then rerun.");
 }
 
@@ -699,11 +713,14 @@ async function recordRepositoryChecks({ checks, store, profile, commandRunner, g
 async function checkPlatformContract(store) {
   const source = await readFile(resolve(store.repoPath, "tabellio.platform.json"), "utf8");
   validatePlatformConfig(JSON.parse(source));
-  return passed("GitHub code storage and external control-state contract valid.");
+  return passed("Code storage and explicit private evidence storage contract valid.");
 }
 
 async function checkGitHubRemotes({ store, commandRunner, ghBinary, controlRemote, remoteRepositoryReader }) {
   const platform = await readPlatformConfig(store);
+  if (platformControlMode(platform) === "local") return controlRemote
+    ? blocked("A control remote was selected in local mode.", "Select private remote mode explicitly before using a control remote.")
+    : passed("Private evidence is local; no GitHub control repository is required.");
   const configuredControl = platform.workflow.controlRemoteName;
   const selectedControl = controlRemote || configuredControl;
   const selectionBlocker = controlSelectionBlocker(selectedControl, configuredControl);

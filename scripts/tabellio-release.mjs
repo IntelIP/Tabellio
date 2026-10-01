@@ -40,7 +40,7 @@ async function plan(options) {
     version,
     notes,
     title = `Tabellio v${version}`,
-    controlRemote = "control",
+    controlRemote = null,
     manifest = "tabellio.validation.json",
     runnerId = "tabellio-release",
     tokenFile,

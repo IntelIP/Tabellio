@@ -560,3 +560,84 @@ function readyProvider({ head, base }) {
     },
   };
 }
+
+test("local release intent binds complete evidence without claiming remote publication", () => {
+  const remote = exampleIntent();
+  const makeLocal = (refs) => createReleaseIntent({
+    ...remote,
+    localControlRefs: refs,
+  });
+  const refs = remote.control.intent.refs.map(({ name, localOid }) => ({ name, localOid }));
+  const local = makeLocal(refs);
+  assert.equal(local.schemaVersion, "tabellio-release-operation/v0.2");
+  assert.deepEqual(local.control, { mode: "local", refs });
+  assert.equal(validateReleaseApproval(approvalFor(local, "local-release"), local, { now }).approved, true);
+  assert.throws(() => validateReleaseApproval(approvalFor(remote, "remote-release"), local, { now }), /intentDigest/);
+  assert.throws(() => makeLocal(refs.slice(1)), /complete release control-ref set/);
+  assert.throws(() => makeLocal([refs[0], refs[0], refs[2]]), /complete release control-ref set/);
+  assert.throws(() => makeLocal(refs.map((ref) => ({ ...ref, remoteOid: null }))), /exactly/);
+  const changed = structuredClone(local);
+  changed.control.refs[0].localOid = "f".repeat(40);
+  assert.throws(() => validateReleaseIntent(changed), /integrity.digest/);
+});
+
+test("local release verifies evidence and retries without any control remote", async (t) => {
+  const fixture = await createFixture();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  await configureRepositoryIdentity(fixture.seed);
+  await writeFile(join(fixture.seed, "package.json"), JSON.stringify({ version: "1.2.3" }));
+  await writeFile(join(fixture.seed, "release-notes.txt"), "Local release\n");
+  await runGit({ args: ["add", "package.json", "release-notes.txt"], cwd: fixture.seed });
+  await runGit({ args: ["commit", "-m", "Local fixture release"], cwd: fixture.seed, env: identityEnv() });
+  await runGit({ args: ["push", "origin", "main"], cwd: fixture.seed });
+  const store = await NativeGitStore.open(fixture.seed);
+  const head = await store.resolveRef("HEAD");
+  const parent = await store.resolveRef("HEAD^");
+  const refs = ["refs/tabellio/reviews", "refs/tabellio/validations", "refs/heads/entire/checkpoints/v1"].map((name) => ({ name, localOid: head }));
+  for (const ref of refs) await runGit({ args: ["update-ref", ref.name, head], cwd: fixture.seed });
+  const intent = createReleaseIntent({
+    repository: { id: "github.com/example/repository", owner: "example", name: "repository" },
+    version: "1.2.3", revision: { commit: head, parent },
+    pullRequest: { number: 7, headCommit: parent, mergeCommit: head },
+    localControlRefs: refs,
+    validation: { runId: "local-test", resultVersion: head, status: "passed", headCommit: head },
+    release: { title: "Local release", notesPath: "release-notes.txt", notesDigest: digest("Local release\n") }, createdAt,
+  });
+  let creates = 0;
+  const executor = await ReleaseExecutor.open({
+    repoPath: fixture.seed, stateRoot: join(fixture.root, "local-release-state"), clock: () => now,
+    codeRepositoryReader: async () => intent.repository.id, remoteRefReader: async () => head,
+    controlRepositoryReader: async () => { throw new Error("Unexpected private remote access"); },
+    commandRunner: async ({ args }) => {
+      if (args[1] === "view") throw Object.assign(new Error("not found"), { exitCode: 1 });
+      creates += 1;
+      if (creates === 1) throw new Error("simulated release delivery failure");
+      return { stdout: "https://github.com/example/repository/releases/tag/v1.2.3\n", stderr: "", exitCode: 0 };
+    },
+  });
+  const approval = approvalFor(intent, "local-retry");
+  await assert.rejects(executor.execute({ intent, approval, now }), /delivery failure/);
+  await runGit({ args: ["update-ref", refs[0].name, parent], cwd: fixture.seed });
+  await assert.rejects(executor.execute({ intent, approval, now }), /Approved local control ref.*changed/);
+  assert.equal(creates, 1);
+  await runGit({ args: ["update-ref", refs[0].name, head], cwd: fixture.seed });
+  const result = await executor.execute({ intent, approval, now });
+  assert.equal(result.receipt.status, "succeeded");
+  const evidence = result.receipt.phases.find((phase) => phase.id === "control-refs");
+  assert.equal(evidence.evidence.status, "verified-local");
+  assert.equal(creates, 2);
+});
+
+test("release planner leaves remote selection unset by default for local preflight", async () => {
+  const sentinel = new Error("preflight reached");
+  const requested = [];
+  const options = {
+    repoPath: new URL("..", import.meta.url).pathname,
+    owner: "example", repo: "repository", number: 7, version: "1.2.3", notesPath: "release-notes.txt",
+    preflightRunner: async ({ controlRemote }) => { requested.push(controlRemote); throw sentinel; },
+  };
+  await assert.rejects(planRelease(options), (error) => error === sentinel);
+  await assert.rejects(planRelease({ ...options, controlRemote: null }), (error) => error === sentinel);
+  await assert.rejects(planRelease({ ...options, controlRemote: "control" }), (error) => error === sentinel);
+  assert.deepEqual(requested, [null, null, "control"]);
+});

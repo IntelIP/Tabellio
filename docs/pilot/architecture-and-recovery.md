@@ -10,7 +10,7 @@ code correct merely by collecting passing reports.
 | --- | --- | --- |
 | Code repository | Source, commits, pull requests and CI | The code and the checks actually retained by GitHub |
 | Entire | Genuine agent-session checkpoints | Session provenance; a hand-written trailer is not a substitute |
-| Private control repository | Review, validation and checkpoint Git refs | Only the objects reachable from the refs actually published there |
+| Customer-owned local Git evidence / optional private remote | Review, validation and checkpoint Git refs | Only reachable objects in the preserved refs; not a database backup |
 | Local PostgreSQL store | Bounded observations, lineage, replay and review packets | Local persistence, not remote publication or a backup |
 | Local receipts / CI artifacts | Command outcomes and diagnostic evidence | Results for their recorded runner/candidate, subject to artifact retention |
 
@@ -22,8 +22,10 @@ and a current, short-lived approval.
 
 ## Publication failure and concurrency
 
-Before sending statuses, a publisher reserves the approval in a private control
-ref using a compare-and-swap Git push. A local pending receipt also records an
+Before sending statuses, local-mode publishers reserve approvals in one explicitly
+selected customer-owned bare Git authority using atomic compare-and-swap ref
+updates. Every publisher must use that same authority; independent stores do not
+coordinate. Legacy explicit private-remote mode uses compare-and-swap Git pushes. A local pending receipt also records an
 uncertain reservation attempt. This prevents two clones from intentionally
 delivering under the same approval. Candidate identity is checked before each
 status and again after delivery.

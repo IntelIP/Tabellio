@@ -7,7 +7,9 @@ const CONTROL_REFS = [
 const CODE_REF_PREFIXES = ["refs/heads/", "refs/tags/"];
 
 export function validatePlatformConfig(value) {
-  exactObject(value, { schemaVersion: "tabellio-platform/v0.3" }, "platform", ["codeStorage", "workflow", "ledger", "validation", "reviews"]);
+  const legacy = value?.schemaVersion === "tabellio-platform/v0.3";
+  const local = !legacy && value?.workflow?.controlState === "local";
+  exactObject(value, { schemaVersion: legacy ? "tabellio-platform/v0.3" : "tabellio-platform/v0.4" }, "platform", ["codeStorage", "workflow", "ledger", "validation", "reviews"]);
 
   exactObject(value.codeStorage, {
     provider: "github",
@@ -19,21 +21,21 @@ export function validatePlatformConfig(value) {
 
   exactObject(value.workflow, {
     stackManager: "git-spice",
-    controlState: "external",
-    controlProvider: "github",
-    controlRemoteName: "control",
+    controlState: local ? "local" : "external",
+    controlProvider: local ? "local" : "github",
+    controlRemoteName: local ? null : "control",
     publishControlRefsToCodeStorage: false,
   }, "platform.workflow", ["controlRefs"]);
   exactSet(value.workflow.controlRefs, CONTROL_REFS, "platform.workflow.controlRefs");
 
   exactObject(value.ledger, {
     provider: "entire",
-    storage: "external",
+    storage: local ? "local" : "external",
     checkpointRef: "refs/heads/entire/checkpoints/v1",
   }, "platform.ledger");
   exactObject(value.validation, {
     runner: "tabellio-validate",
-    storage: "external",
+    storage: local ? "local" : "external",
     resultRef: "refs/tabellio/validations",
   }, "platform.validation", ["manifest"]);
   if (typeof value.validation.manifest !== "string" || value.validation.manifest.trim() === "") {
@@ -41,10 +43,15 @@ export function validatePlatformConfig(value) {
   }
   exactObject(value.reviews, {
     provider: "tabellio",
-    storage: "external",
+    storage: local ? "local" : "external",
     stateRef: "refs/tabellio/reviews",
   }, "platform.reviews");
   return value;
+}
+
+export function platformControlMode(value) {
+  validatePlatformConfig(value);
+  return value.workflow.controlState === "local" ? "local" : "remote";
 }
 
 function exactObject(value, expected, path, additionalKeys = []) {

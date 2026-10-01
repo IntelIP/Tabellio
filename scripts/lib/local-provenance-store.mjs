@@ -119,6 +119,7 @@ export class LocalProvenanceStore {
     if (!result) return null;
     const { verifyLineage } = await import("./provenance-ledger.mjs");
     const lineage = verifyLineage(JSON.parse(result));
+    if (lineage.digest !== query.digest) throw new Error("Stored lineage digest integrity mismatch.");
     if (lineage.candidate.projectKey !== projectKey || lineage.candidate.repositoryId !== repositoryId) throw new Error("Stored lineage scope integrity mismatch.");
     return lineage;
   }

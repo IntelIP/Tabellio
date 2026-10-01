@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { platformControlMode, validatePlatformConfig } from "./lib/platform-config.mjs";
 import { parseCommandOptions, requireOptions, writeJsonOutput } from "./lib/cli-options.mjs";
 import { LocalProvenanceStore } from "./lib/local-provenance-store.mjs";
 import { assembleLineage, buildReviewPacket, captureCandidate, verifyLineage } from "./lib/provenance-ledger.mjs";
@@ -32,7 +34,7 @@ async function main() {
     replay: ["input", "databaseUrl", "out"],
     show: [...query, "out"],
     review: [...query, "repo", "base", "head", "now", "reportUrl", "securityInput", "policyDigest", "out"],
-    "review-intent": [...query, "repo", "base", "head", "now", "reportUrl", "out"],
+    "review-intent": [...query, "repo", "base", "head", "now", "reportUrl", "publicationStore", "reservationRemote", "out"],
     "publish-review": [...query, "repo", "base", "head", "intentInput", "approvalInput", "out"],
     packet: [...query, "repo", "base", "head", "now", "out"],
     "import-security": [...query, "input", "policyDigest", "repo", "base", "head", "now", "out"],
@@ -75,7 +77,7 @@ async function main() {
   const candidate = await captureCandidate(options);
   const evaluation = { candidate, now: options.now ?? new Date().toISOString() };
   if (options.command === "review-intent") {
-    await writeJsonOutput(createProvenanceStatusIntent(lineage, { ...evaluation, reportUrl: options.reportUrl ?? null }), options.out);
+    await writeJsonOutput(createProvenanceStatusIntent(lineage, { ...evaluation, reportUrl: options.reportUrl ?? null, publicationStore: options.publicationStore, reservationRemote: await intentReservationRemote(options) }), options.out);
     return;
   }
   if (options.command === "publish-review") return publishReviewCommand(options, lineage);
@@ -143,4 +145,14 @@ async function importSources(options) {
   const status = result.sources.every((source) => source.status === "present") ? "stored" : "blocked";
   await writeJsonOutput({ status, ...result }, options.out);
   if (status === "blocked") process.exitCode = 1;
+}
+
+async function intentReservationRemote(options) {
+  if (options.reservationRemote !== undefined) return options.reservationRemote;
+  if (options.publicationStore !== undefined || process.env.TABELLIO_PUBLICATION_STORE !== undefined) return undefined;
+  let source;
+  try { source = await readFile(resolve(options.repo, "tabellio.platform.json"), "utf8"); }
+  catch (error) { if (error.code === "ENOENT") return undefined; throw error; }
+  const platform = validatePlatformConfig(JSON.parse(source));
+  return platformControlMode(platform) === "remote" ? "control" : undefined;
 }
