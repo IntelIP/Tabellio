@@ -16,6 +16,7 @@ fi
 
 . .buildkite/scripts/verify-git-toolchain.sh
 . .buildkite/scripts/security-tools.sh
+. .buildkite/scripts/entire-tools.sh
 
 postgres_bin="$(pg_config --bindir)"
 test -x "$postgres_bin/initdb"
@@ -84,7 +85,7 @@ fi
 
 install -m 755 scripts/tabellio-validator.mjs "$temporary_dir/tabellio-validator"
 
-PATH="$temporary_dir:$PATH" node scripts/tabellio-validate.mjs gate \
+if ! PATH="$temporary_dir:$PATH" node scripts/tabellio-validate.mjs gate \
   --repo . \
   --repo-id IntelIP/Tabellio \
   --runner-id "buildkite:${BUILDKITE_BUILD_ID:?Buildkite build ID is required}" \
@@ -92,7 +93,10 @@ PATH="$temporary_dir:$PATH" node scripts/tabellio-validate.mjs gate \
   --commit HEAD \
   "${checkpoint_args[@]}" \
   --manifest tabellio.validation.json \
-  | tee tabellio-validation-result.json
+  | tee tabellio-validation-result.json; then
+  printf '%s\n' 'Product validation failed. Check the reported validator error. Entire requires complete checkpoint metadata from IntelIP/Tabellio-control and separately approved read access; missing evidence must fail the gate.' >&2
+  exit 1
+fi
 
 validation_ref="refs/tabellio/validations"
 validation_commit="$(git rev-parse "${validation_ref}^{commit}")"

@@ -30,6 +30,8 @@ jobs:
           echo "$postgres_bin" >> "$GITHUB_PATH"
       - name: Install pinned security scanners
         run: bash .buildkite/scripts/security-tools.sh
+      - name: Install checksum-verified Entire 0.7.7
+        run: bash .buildkite/scripts/entire-tools.sh
       - name: Resolve squash-merge checkpoint revision
         id: checkpoint
         if: github.event_name == 'push'
@@ -70,13 +72,16 @@ jobs:
             fi
           fi
           install -m 755 scripts/tabellio-validator.mjs "$RUNNER_TEMP/tabellio-validator"
-          PATH="$RUNNER_TEMP:$PATH" node scripts/tabellio-validate.mjs gate \
+          if ! PATH="$RUNNER_TEMP:$PATH" node scripts/tabellio-validate.mjs gate \
             --repo . \
             --repo-id IntelIP/Tabellio \
             --base "$base_ref" \
             --commit HEAD \
             "${checkpoint_args[@]}" \
-            --manifest tabellio.validation.json | tee tabellio-validation-result.json
+            --manifest tabellio.validation.json | tee tabellio-validation-result.json; then
+            echo 'Product validation failed. Check the reported validator error. Entire requires complete checkpoint metadata from IntelIP/Tabellio-control and separately approved read access; missing evidence must fail the gate.' >&2
+            exit 1
+          fi
       - name: Upload validation result
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
