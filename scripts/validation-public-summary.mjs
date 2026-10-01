@@ -13,9 +13,10 @@ try {
       if (!found || !['passed', 'failed', 'blocked', 'skipped'].includes(found.status)) continue;
       const reasons = ['command_failed', 'validator_command_failed', 'command_error', 'command_timed_out', 'evidence_missing', 'evidence_invalid', 'evidence_reported_failed', 'evidence_reported_blocked', 'fail_fast'];
       const command = value.result.commands?.find(item => item?.id === expected.id);
+      const failCounts = typeof command?.stdout?.tail === 'string' ? [...command.stdout.tail.matchAll(/^# fail ([0-9]{1,6})$/gm)] : [];
       validators.push({ id: expected.id, status: found.status,
         reasons: Array.isArray(found.reasons) ? found.reasons.filter(reason => reasons.includes(reason)) : [],
-        testFailures: typeof command?.stdout === 'string' ? (command.stdout.match(/^not ok \d+ /gm) ?? []).length : 0 });
+        testFailures: failCounts.length ? Number(failCounts.at(-1)[1]) : null });
     }
   }
 } catch {}

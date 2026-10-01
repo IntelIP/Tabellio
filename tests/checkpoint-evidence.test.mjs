@@ -48,7 +48,7 @@ test('public CI summary never forwards private metadata or error content', async
       { id: 'control-plane-static', status: 'failed', reasons: ['command_failed', 'private-secret-marker'] },
       { id: 'private-secret-marker', status: 'failed', reasons: [] },
       { id: 'control-plane-security', status: 'private-secret-marker', reasons: [] }
-    ], commands: [{ id: 'control-plane-static', stdout: 'not ok 1 private-secret-marker\n', stderr: 'private-secret-marker' }] } }));
+    ], commands: [{ id: 'control-plane-static', stdout: { tail: 'not ok 1 private-secret-marker\n# fail 1\n', bytes: 100, digest: 'private-secret-marker', truncated: false }, stderr: 'private-secret-marker' }] } }));
     assert.equal(run(root, process.execPath, [summary, input, output]).status, 0);
     assert.deepEqual(JSON.parse(await readFile(output, 'utf8')), { status: 'failed', validators: [{ id: 'control-plane-static', status: 'failed', reasons: ['command_failed'], testFailures: 1 }] });
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -71,9 +71,15 @@ test('filtered native bundle preserves original identity and excludes transcript
     const filter = git(source, 'hash-object', '-w', patterns);
     const bundle = join(root, 'metadata.bundle');
     git(source, 'bundle', 'create', bundle, `--filter=sparse:oid=${filter}`, 'refs/heads/entire/checkpoints/v1');
+    await writeFile(join(target, 'candidate.mjs'), 'export const fixture = true;\n');
+    git(target, 'add', '.');
+    git(target, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'Public candidate fixture');
     assert.equal(run(target, 'bash', [helper], { TABELLIO_CHECKPOINT_BUNDLE: bundle }).status, 0);
     assert.equal(git(target, 'rev-parse', 'refs/heads/entire/checkpoints/v1'), head);
     assert.equal(git(target, 'show', `${head}:metadata.json`), '{"fixture":"metadata"}');
+    const probe = run(target, 'bash', [resolve('.buildkite/scripts/verify-git-toolchain.sh')], { TABELLIO_GIT_EVIDENCE_PATH: join(root, 'capability.json') });
+    assert.equal(probe.status, 0, 'The candidate Git capability probe must not traverse excluded private checkpoint blobs.');
+
     for (const path of ['full.jsonl', 'prompt.txt']) {
       const oid = git(source, 'rev-parse', `${head}:${path}`);
       assert.notEqual(run(target, 'git', ['cat-file', '-e', oid]).status, 0);
