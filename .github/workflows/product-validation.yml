@@ -6,6 +6,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: product-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: read
@@ -21,7 +25,7 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with: {node-version: 22.23.1}
+        with: {node-version: 22.23.1, package-manager-cache: false}
       - name: Enable local PostgreSQL binaries for isolated provenance validation
         run: |
           postgres_bin="$(pg_config --bindir)"
@@ -79,7 +83,8 @@ jobs:
           install -m 755 scripts/tabellio-validator.mjs "$RUNNER_TEMP/tabellio-validator"
           if ! PATH="$RUNNER_TEMP:$PATH" node scripts/tabellio-validate.mjs gate \
             --repo . \
-            --repo-id "$GITHUB_REPOSITORY" \
+            --repo-id "github.com/$GITHUB_REPOSITORY" \
+            --runner-id "github:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" \
             --base "$base_ref" \
             --commit HEAD \
             "${checkpoint_args[@]}" \
@@ -89,11 +94,12 @@ jobs:
             exit 1
           fi
           node scripts/validation-public-summary.mjs "$private_dir/tabellio-validation-private.json" tabellio-validation-result.json
-      - name: Upload validation result
+      - name: Publish safe validation summary without artifact storage
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: tabellio-validation-${{ github.event.pull_request.head.sha || github.sha }}
-          path: |
-            tabellio-validation-result.json
-          if-no-files-found: warn
+        run: |
+          if [ -f tabellio-validation-result.json ]; then
+            cat tabellio-validation-result.json
+            cat tabellio-validation-result.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Product validation blocked before a safe result was produced.' >> "$GITHUB_STEP_SUMMARY"
+          fi
