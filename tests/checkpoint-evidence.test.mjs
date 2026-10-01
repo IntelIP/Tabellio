@@ -41,9 +41,16 @@ test('public CI summary never forwards private metadata or error content', async
       await writeFile(input, JSON.stringify(value));
       assert.equal(run(root, process.execPath, [summary, input, output]).status, 0);
       const result = JSON.parse(await readFile(output, 'utf8'));
-      assert.deepEqual(Object.keys(result), ['status']); assert.ok(!JSON.stringify(result).includes('private-secret-marker'));
+      assert.deepEqual(Object.keys(result), ['status', 'validators']); assert.deepEqual(result.validators, []); assert.ok(!JSON.stringify(result).includes('private-secret-marker'));
       assert.equal(result.status, value.ok ? 'passed' : 'blocked');
     }
+    await writeFile(input, JSON.stringify({ ok: true, result: { status: 'failed', validators: [
+      { id: 'control-plane-static', status: 'failed', reasons: ['command_failed', 'private-secret-marker'] },
+      { id: 'private-secret-marker', status: 'failed', reasons: [] },
+      { id: 'control-plane-security', status: 'private-secret-marker', reasons: [] }
+    ], commands: [{ id: 'control-plane-static', stdout: 'not ok 1 private-secret-marker\n', stderr: 'private-secret-marker' }] } }));
+    assert.equal(run(root, process.execPath, [summary, input, output]).status, 0);
+    assert.deepEqual(JSON.parse(await readFile(output, 'utf8')), { status: 'failed', validators: [{ id: 'control-plane-static', status: 'failed', reasons: ['command_failed'], testFailures: 1 }] });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
