@@ -14,7 +14,26 @@ if [[ -n "${TABELLIO_CHECKPOINT_BUNDLE:-}" ]]; then
     exit 1
   fi
   # No force: divergent existing history requires explicit operator reconciliation.
-  if ! git fetch --no-tags "$bundle" "$checkpoint_ref:$checkpoint_ref" >/dev/null 2>&1; then
+  if head -n 4 "$bundle" | grep -q '^@filter='; then
+    # Native filtered bundles preserve original object IDs and use promisor packs.
+    # Ordinary fetch rejects their intentionally absent transcript/prompt blobs.
+    advertised="$(git bundle list-heads "$bundle")"
+    imported="$(printf '%s\n' "$advertised" | awk -v ref="$checkpoint_ref" '$2 == ref { print $1 }')"
+    if [[ "$(printf '%s\n' "$advertised" | wc -l | tr -d ' ')" != 1 ]] ||
+       ! git bundle unbundle "$bundle" >/dev/null 2>&1; then
+      echo 'Checkpoint setup blocked: filtered native history import failed.' >&2
+      exit 1
+    fi
+    current="$(git rev-parse --verify "$checkpoint_ref" 2>/dev/null || true)"
+    if [[ -n "$current" ]] && ! git merge-base --is-ancestor "$current" "$imported"; then
+      echo 'Checkpoint setup blocked: divergent native history requires operator reconciliation.' >&2
+      exit 1
+    fi
+    if ! git update-ref "$checkpoint_ref" "$imported" "$current"; then
+      echo 'Checkpoint setup blocked: native history changed during import.' >&2
+      exit 1
+    fi
+  elif ! git fetch --no-tags "$bundle" "$checkpoint_ref:$checkpoint_ref" >/dev/null 2>&1; then
     echo 'Checkpoint setup blocked: native checkpoint import failed; reconcile existing history on the trusted worker.' >&2
     exit 1
   fi

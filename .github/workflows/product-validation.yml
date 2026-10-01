@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   validate:
+    environment: tabellio-checkpoint-proof
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -61,8 +62,11 @@ jobs:
           git fetch --no-tags origin "+$CHECKPOINT_FETCH_REF:$CHECKPOINT_LOCAL_REF"
           actual_head="$(git rev-parse "$CHECKPOINT_LOCAL_REF^{commit}")"
           test "$actual_head" = "$CHECKPOINT_EXPECTED_HEAD"
-      - name: Load customer-owned checkpoint evidence
-        run: bash .buildkite/scripts/checkpoint-evidence.sh
+      - name: Load approved exact-candidate checkpoint evidence
+        env:
+          TABELLIO_CHECKPOINT_PROOF_1: ${{ secrets.TABELLIO_CHECKPOINT_PROOF_1 }}
+          TABELLIO_CHECKPOINT_PROOF_2: ${{ secrets.TABELLIO_CHECKPOINT_PROOF_2 }}
+        run: node scripts/ci-checkpoint-evidence.mjs load
       - name: Validate exact candidate
         env:
           CHECKPOINT_FOUND: ${{ steps.checkpoint.outputs.found }}
@@ -103,3 +107,6 @@ jobs:
           else
             echo 'Product validation blocked before a safe result was produced.' >> "$GITHUB_STEP_SUMMARY"
           fi
+      - name: Remove private checkpoint runner files
+        if: always()
+        run: node scripts/ci-checkpoint-evidence.mjs cleanup

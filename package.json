@@ -118,7 +118,8 @@
     "tabellio:provenance": "node scripts/tabellio-provenance.mjs",
     "tabellio:provenance:demo": "node scripts/demo-provenance.mjs",
     "tabellio:provenance:security:check": "node scripts/check-provenance-security.mjs",
-    "benchmark:provenance": "node scripts/benchmark-provenance.mjs"
+    "benchmark:provenance": "node scripts/benchmark-provenance.mjs",
+    "tabellio:checkpoint:export": "node scripts/export-checkpoint-metadata.mjs"
   },
   "engines": {
     "node": ">=20"
