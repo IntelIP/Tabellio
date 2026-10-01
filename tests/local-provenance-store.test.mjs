@@ -17,6 +17,13 @@ const execFileAsync = promisify(execFile);
 const postgresHost = process.env.TABELLIO_TEST_PG_SOCKET ?? "127.0.0.1";
 const postgresUser = process.env.TABELLIO_TEST_PG_USER;
 const postgresArgs = ["--host", postgresHost, ...(postgresUser ? ["--username", postgresUser] : [])];
+async function createMigratedTestStore(t) {
+  const databaseName = await createTestDatabase(t);
+  const databaseUrl = testDatabaseUrl(databaseName);
+  const store = new LocalProvenanceStore({ databaseUrl });
+  await store.migrate();
+  return { databaseName, databaseUrl, store };
+}
 function testDatabaseUrl(name) {
   return `postgresql://${postgresUser ? `${encodeURIComponent(postgresUser)}@` : ""}localhost/${name}?host=${encodeURIComponent(postgresHost)}`;
 }
@@ -27,9 +34,7 @@ test("required PostgreSQL integration environment is available", () => {
 });
 
 test("lineage persists atomically, isolates projects, and replays from original fixtures", { skip: !postgresAvailable }, async (t) => {
-  const databaseName = await createTestDatabase(t);
-  const databaseUrl = testDatabaseUrl(databaseName);
-  const store = new LocalProvenanceStore({ databaseUrl }); await store.migrate();
+  const { databaseName, databaseUrl, store } = await createMigratedTestStore(t);
   const cli = fileURLToPath(new URL("../scripts/tabellio-local-store.mjs", import.meta.url));
   const migration = JSON.parse((await execFileAsync(process.execPath, [cli, "migrate", "--database-url", databaseUrl])).stdout);
   assert.equal(migration.version, "002_tabellio_lineages");
@@ -54,9 +59,7 @@ test("lineage persists atomically, isolates projects, and replays from original 
 });
 
 test("lineage insert plans reflect their single-row input without excessive compilation cost", { skip: !postgresAvailable }, async (t) => {
-  const databaseName = await createTestDatabase(t);
-  const databaseUrl = testDatabaseUrl(databaseName);
-  const store = new LocalProvenanceStore({ databaseUrl }); await store.migrate();
+  const { databaseUrl, store } = await createMigratedTestStore(t);
   const root = await mkdtemp(join(tmpdir(), "tabellio-lineage-plan-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const reportPath = join(root, "plan.json"); const probe = join(root, "probe-psql.mjs");
@@ -419,7 +422,8 @@ test("rejected payload keys never appear in diagnostics", () => {
 
 
 test("malformed record JSON never leaks input through CLI diagnostics", { skip: !postgresAvailable }, async (t) => {
-  const databaseUrl = testDatabaseUrl(await createTestDatabase(t));
+  const databaseName = await createTestDatabase(t);
+  const databaseUrl = testDatabaseUrl(databaseName);
   const root = await mkdtemp(join(tmpdir(), "tabellio-json-error-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const file = join(root, "record.json");
