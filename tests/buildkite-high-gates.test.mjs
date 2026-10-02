@@ -140,7 +140,7 @@ test("GitHub merged-head validation remains during Buildkite migration", async (
   const loader = await repositoryFile("scripts/ci-checkpoint-evidence.mjs");
   assert.match(loader, /execFileSync\('bash', \['\.buildkite\/scripts\/checkpoint-evidence\.sh'\]/);
   assert.match(loader, /envelope\.candidate !== git\('rev-parse', 'HEAD'\)/);
-  assert.match(loader, /envelope\.base !== git\('merge-base', 'origin\/main', 'HEAD'\)/);
+  assert.match(loader, /envelope\.base !== base/);
   assert.match(loader, /createHash\('sha256'\)\.update\(bytes\)\.digest\('hex'\) !== envelope\.sha256/);
   assert.doesNotMatch(workflow, /refs\/tabellio\/validations\//);
   assert.doesNotMatch(workflow, /validation-ref\.bundle/);

@@ -28,11 +28,15 @@ try {
     const text = (process.env.TABELLIO_CHECKPOINT_PROOF_1 ?? '') + (process.env.TABELLIO_CHECKPOINT_PROOF_2 ?? '');
     if (!text || text.length > 98000) throw new Error('Missing or oversized evidence.');
     const envelope = JSON.parse(text);
+    // Keep the transport range aligned with the validation gate after main advances.
+    const base = process.env.GITHUB_EVENT_NAME === 'push'
+      ? git('rev-parse', 'HEAD^')
+      : git('merge-base', 'origin/main', 'HEAD');
     if (Object.keys(envelope).sort().join(',') !== 'base,bundle,candidate,nativeTip,repositoryId,schemaVersion,sha256'
       || envelope.schemaVersion !== 'tabellio-private-checkpoint-proof/v1'
       || envelope.repositoryId !== `github.com/${process.env.GITHUB_REPOSITORY}`
       || envelope.candidate !== git('rev-parse', 'HEAD')
-      || envelope.base !== git('merge-base', 'origin/main', 'HEAD')
+      || envelope.base !== base
       || !/^[0-9a-f]{40}$/.test(envelope.nativeTip)) throw new Error('Evidence scope mismatch.');
     const bytes = Buffer.from(envelope.bundle, 'base64');
     if (bytes.toString('base64') !== envelope.bundle || createHash('sha256').update(bytes).digest('hex') !== envelope.sha256) throw new Error('Evidence integrity mismatch.');
