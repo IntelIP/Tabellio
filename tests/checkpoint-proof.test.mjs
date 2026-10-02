@@ -58,7 +58,7 @@ test('serialized native pack preserves IDs and rejects extra blobs, wrong tips a
     const prefix = 'ab/cdef012345'; await mkdir(join(root, prefix, '0'), { recursive: true });
     const metadata = { checkpoint_id: 'abcdef012345', sessions: [{ metadata: `/${prefix}/0/metadata.json`, prompt: '', transcript: `/${prefix}/0/full.jsonl`, content_hash: 'fixture' }] };
     await writeFile(join(root, prefix, 'metadata.json'), JSON.stringify(metadata));
-    await writeFile(join(root, prefix, '0/metadata.json'), JSON.stringify({ checkpoint_id: 'abcdef012345', session_id: 'synthetic' }));
+    await writeFile(join(root, prefix, '0/metadata.json'), JSON.stringify({ checkpoint_id: 'abcdef012345', session_id: 'synthetic', branch: 'fixture', save_step_count: 1, turn_id: 'fixture-turn', session_metrics: { turn_count: 2 }, initial_attribution: { calculated_at: '2026-01-01T00:00:00Z', agent_lines: 3 }, combined_attribution: { agent_lines: 3 }, prompt_attributions: [{ checkpoint_number: 0, agent_lines_added: 3, user_added_per_file: { 'fixture.mjs': 2, calculated_at: 1 } }] }));
     await writeFile(join(root, prefix, '0/full.jsonl'), 'private-transcript-marker');
     git('add', '.'); git('commit', '-qm', 'Synthetic transport fixture'); const tip = git('rev-parse', 'HEAD');
     const patterns = `/${prefix}/metadata.json\n/${prefix}/0/metadata.json\n`;
@@ -72,6 +72,21 @@ test('serialized native pack preserves IDs and rejects extra blobs, wrong tips a
     await assert.rejects(auditProofPack(root, filtered, tip, []));
     const full = join(root, 'full.bundle'); git('bundle', 'create', '--version=3', full, 'refs/heads/entire/checkpoints/v1');
     await assert.rejects(auditProofPack(root, await readFile(full), tip, ['abcdef012345']));
+    for (const [index, extra] of [
+      { session_metrics: { turn_count: 'private-text' } },
+      { initial_attribution: { agent_lines: 'private-text' } },
+      { prompt_attributions: [{ agent_lines_added: 'private-text' }] },
+      { session_metrics: { prompt: 'private-text' } },
+      { summary: { intent: 'private-text' } },
+      { initial_attribution: { calculated_at: '2026-01-01 (private prompt text)' } },
+      { prompt_attributions: [{ user_added_per_file: { calculated_at: '2026-01-01T00:00:00Z' } }] },
+    ].entries()) {
+      await writeFile(join(root, prefix, '0/metadata.json'), JSON.stringify({ checkpoint_id: 'abcdef012345', ...extra }));
+      git('add', prefix); git('commit', '-qm', 'Rejected native text fixture');
+      const unsafe = join(root, `unsafe-${index}.bundle`); const unsafeTip = git('rev-parse', 'HEAD');
+      git('bundle', 'create', unsafe, `--filter=sparse:oid=${filter}`, 'refs/heads/entire/checkpoints/v1');
+      await assert.rejects(auditProofPack(root, await readFile(unsafe), unsafeTip, ['abcdef012345']), /Native counters cannot contain text|Unsupported native counter field|Unsupported metadata fields|Invalid attribution time/);
+    }
     metadata.sessions[0].prompt = 'inline-private-prompt'; await writeFile(join(root, prefix, 'metadata.json'), JSON.stringify(metadata));
     git('add', prefix); git('commit', '-qm', 'Unsupported inline prompt fixture'); const changed = git('rev-parse', 'HEAD');
     const inline = join(root, 'inline.bundle'); git('bundle', 'create', inline, `--filter=sparse:oid=${filter}`, 'refs/heads/entire/checkpoints/v1');

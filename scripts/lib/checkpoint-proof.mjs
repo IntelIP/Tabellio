@@ -100,8 +100,9 @@ function sessionMetadataPath(prefix, session) {
 }
 
 function assertMetadataFields(value) {
-  const allowed = ['cli_version', 'checkpoint_id', 'strategy', 'checkpoints_count', 'files_touched', 'sessions', 'token_usage', 'session_id', 'created_at', 'agent', 'model'];
+  const allowed = ['cli_version', 'checkpoint_id', 'strategy', 'checkpoints_count', 'files_touched', 'sessions', 'token_usage', 'session_id', 'created_at', 'agent', 'model', 'branch', 'save_step_count', 'turn_id', 'session_metrics', 'initial_attribution', 'combined_attribution', 'prompt_attributions'];
   if (Object.keys(value).some(key => !allowed.includes(key))) throw new Error('Unsupported metadata fields require private review.');
+  assertNativeCounters(value);
 }
 
 export async function resolveProofScope(options, dependencies) {
@@ -144,4 +145,45 @@ export async function resolveProofRepository(repo) {
     cwd: resolve(repo), encoding: 'utf8', timeout: 30000, stdio: ['pipe', 'pipe', 'pipe'],
   }).trim();
   return realpath(root);
+}
+
+// Pinned Entire 0.7.7 checkpoint.go: accept counters, never summaries/review prompts.
+function assertNativeCounters(value) {
+  if (value.branch !== undefined && (typeof value.branch !== 'string' || /\s/.test(value.branch))) throw new Error('Invalid branch metadata.');
+  if (value.turn_id !== undefined && (typeof value.turn_id !== 'string' || !/^[A-Za-z0-9_.:-]{1,256}$/.test(value.turn_id))) throw new Error('Invalid turn identifier.');
+  if (value.save_step_count !== undefined && (!Number.isSafeInteger(value.save_step_count) || value.save_step_count < 0)) throw new Error('Invalid save-step counter.');
+  assertCounterFields(value.session_metrics, ['duration_ms', 'turn_count', 'context_tokens', 'context_window_size']);
+  const attributionFields = ['calculated_at', 'agent_lines', 'agent_removed', 'human_added', 'human_modified', 'human_removed', 'total_committed', 'total_lines_changed', 'agent_percentage', 'metric_version'];
+  assertCounterFields(value.initial_attribution, attributionFields);
+  assertCounterFields(value.combined_attribution, attributionFields);
+  assertPromptCounters(value.prompt_attributions);
+}
+
+function assertCounterFields(value, allowed) {
+  if (value === undefined) return;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid native counter object.');
+  for (const [key, counter] of Object.entries(value)) {
+    if (!allowed.includes(key)) throw new Error('Unsupported native counter field.');
+    if (key === 'calculated_at') {
+      if (typeof counter !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(counter) || !Number.isFinite(Date.parse(counter))) throw new Error('Invalid attribution time.');
+    } else if (typeof counter !== 'number' || !Number.isFinite(counter)) throw new Error('Native counters cannot contain text.');
+  }
+}
+
+function assertPromptCounters(value) {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) throw new Error('Invalid prompt attribution counters.');
+  for (const item of value) {
+    const { user_added_per_file, user_removed_per_file, ...counters } = item;
+    assertCounterFields(counters, ['checkpoint_number', 'user_lines_added', 'user_lines_removed', 'agent_lines_added', 'agent_lines_removed']);
+    for (const files of [user_added_per_file, user_removed_per_file]) {
+      assertFileCounters(files);
+    }
+  }
+}
+
+function assertFileCounters(value) {
+  if (value === undefined) return;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid native file counters.');
+  if (Object.values(value).some(counter => typeof counter !== 'number' || !Number.isFinite(counter))) throw new Error('Native counters cannot contain text.');
 }
