@@ -110,14 +110,15 @@ export async function resolveProofScope(options, dependencies) {
   const { repository, git, github, remote } = dependencies;
   assertScopeOptions(options, repository);
   const canonical = github(`repos/${repository.fullName}`);
-  if (`github.com/${canonical.full_name}` !== repositoryId) throw new Error('Canonical repository mismatch.');
+  const canonicalId = `github.com/${canonical.full_name}`;
+  if (canonicalId.toLowerCase() !== repositoryId.toLowerCase()) throw new Error('Canonical repository mismatch.');
   if (git('rev-parse', '--verify', `${candidate}^{commit}`) !== candidate) throw new Error('Candidate unavailable.');
   const targetRef = event === 'push' ? 'refs/heads/main' : `refs/pull/${pullRequest}/head`;
   assertProofTarget(candidate, git('rev-parse', 'HEAD'), await remote(targetRef));
   await assertFreshMain(event, git, remote);
   const base = event === 'push' ? git('rev-parse', `${candidate}^`) : git('merge-base', 'origin/main', candidate);
   const checkpointHead = checkpointSource(event, candidate, repository, git, github);
-  return { repositoryId, event, candidate, targetRef, ...(pullRequest === undefined ? {} : { pullRequest }),
+  return { repositoryId: canonicalId, event, candidate, targetRef, ...(pullRequest === undefined ? {} : { pullRequest }),
     base, checkpointHead, checkpointBase: git('merge-base', base, checkpointHead) };
 }
 

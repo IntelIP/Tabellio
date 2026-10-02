@@ -166,3 +166,35 @@ test('CLI resolves a checkout subdirectory before rejecting source-tree proof ou
     await assert.rejects(access(marker)); await assert.rejects(access(join(root, 'docs', 'handoff')));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+
+for (const event of ['pull_request', 'push']) {
+  for (const [origin, input] of [
+    ['fixture/test', 'github.com/fixture/test'],
+    ['FIXTURE/TEST', 'github.com/Fixture/Test'],
+    ['Fixture/Test', 'GITHUB.COM/FIXTURE/TEST'],
+  ]) {
+    test(`${event} scope canonicalizes ${origin} origin and ${input} input`, async () => {
+      const candidate = 'a'.repeat(40), base = 'b'.repeat(40);
+      const canonicalId = 'github.com/Fixture/Test';
+      const repository = { fullName: origin, identity: `github.com/${origin}` };
+      const options = { repositoryId: input, event, candidate, ...(event === 'pull_request' ? { pullRequest: '5' } : {}) };
+      const dependencies = {
+        repository,
+        github: path => path.endsWith('/pulls') ? [] : { full_name: 'Fixture/Test' },
+        git: (...args) => args[0] === 'merge-base' || args.at(-1) === `${candidate}^` || args.at(-1) === 'origin/main' ? base : candidate,
+        remote: async ref => event === 'pull_request' && ref === 'refs/heads/main' ? base : candidate,
+      };
+      const resolved = await resolveProofScope(options, dependencies);
+      assert.equal(resolved.repositoryId, canonicalId);
+      assert.equal(JSON.parse(proofTransport(resolved, bytes).text).repositoryId, canonicalId);
+      assert.deepEqual(await resolveProofScope({ ...options, repositoryId: resolved.repositoryId }, dependencies), resolved);
+      for (const wrong of ['github.com/foreign/test', 'github.com/fixture/foreign']) {
+        await assert.rejects(resolveProofScope({ ...options, repositoryId: wrong }, dependencies), /Repository mismatch/);
+      }
+      for (const full_name of ['Foreign/Test', 'Fixture/Foreign']) {
+        await assert.rejects(resolveProofScope(options, { ...dependencies, github: () => ({ full_name }) }), /Canonical repository mismatch/);
+      }
+    });
+  }
+}
