@@ -156,7 +156,7 @@ function positiveInteger(value, path) {
 }
 
 function requiredInteger(value, path) {
-  if (!Number.isInteger(value)) throw new TypeError(`${path} must be an integer.`);
+  if (!Number.isSafeInteger(value) || value <= 0) throw new TypeError(`${path} must be a positive safe integer.`);
   return value;
 }
 

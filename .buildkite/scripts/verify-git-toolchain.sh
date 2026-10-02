@@ -44,7 +44,8 @@ git merge-base --is-ancestor "$head_commit" "$head_commit"
 (
   temporary_dir="$(mktemp -d)"
   trap 'rm -rf "$temporary_dir"' EXIT
-  git bundle create "$temporary_dir/capability.bundle" --all
+  # Probe the public candidate without traversing private, intentionally filtered refs.
+  git bundle create "$temporary_dir/capability.bundle" HEAD
   git bundle verify "$temporary_dir/capability.bundle" >/dev/null
 )
 

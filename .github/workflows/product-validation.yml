@@ -6,12 +6,17 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: product-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: read
 
 jobs:
   validate:
+    environment: tabellio-checkpoint-proof
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -21,7 +26,7 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with: {node-version: 22}
+        with: {node-version: 22.23.1, package-manager-cache: false}
       - name: Enable local PostgreSQL binaries for isolated provenance validation
         run: |
           postgres_bin="$(pg_config --bindir)"
@@ -30,6 +35,8 @@ jobs:
           echo "$postgres_bin" >> "$GITHUB_PATH"
       - name: Install pinned security scanners
         run: bash .buildkite/scripts/security-tools.sh
+      - name: Install checksum-verified Entire 0.7.7
+        run: bash .buildkite/scripts/entire-tools.sh
       - name: Resolve squash-merge checkpoint revision
         id: checkpoint
         if: github.event_name == 'push'
@@ -55,12 +62,20 @@ jobs:
           git fetch --no-tags origin "+$CHECKPOINT_FETCH_REF:$CHECKPOINT_LOCAL_REF"
           actual_head="$(git rev-parse "$CHECKPOINT_LOCAL_REF^{commit}")"
           test "$actual_head" = "$CHECKPOINT_EXPECTED_HEAD"
+      - name: Load approved exact-candidate checkpoint evidence
+        env:
+          TABELLIO_CHECKPOINT_PROOF_1: ${{ secrets.TABELLIO_CHECKPOINT_PROOF_1 }}
+          TABELLIO_CHECKPOINT_PROOF_2: ${{ secrets.TABELLIO_CHECKPOINT_PROOF_2 }}
+        run: node scripts/ci-checkpoint-evidence.mjs load
       - name: Validate exact candidate
         env:
           CHECKPOINT_FOUND: ${{ steps.checkpoint.outputs.found }}
           CHECKPOINT_HEAD: ${{ steps.checkpoint.outputs.head }}
         run: |
           set -o pipefail
+          umask 077
+          private_dir="$(mktemp -d)"
+          trap 'rm -rf "$private_dir"' EXIT
           base_ref=origin/main
           checkpoint_args=()
           if [ "$GITHUB_EVENT_NAME" = "push" ]; then
@@ -70,19 +85,28 @@ jobs:
             fi
           fi
           install -m 755 scripts/tabellio-validator.mjs "$RUNNER_TEMP/tabellio-validator"
-          PATH="$RUNNER_TEMP:$PATH" node scripts/tabellio-validate.mjs gate \
+          if ! PATH="$RUNNER_TEMP:$PATH" node scripts/tabellio-validate.mjs gate \
             --repo . \
-            --repo-id IntelIP/Tabellio \
+            --repo-id "github.com/$GITHUB_REPOSITORY" \
+            --runner-id "github:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" \
             --base "$base_ref" \
             --commit HEAD \
             "${checkpoint_args[@]}" \
-            --manifest tabellio.validation.json | tee tabellio-validation-result.json
-      - name: Upload validation result
+            --manifest tabellio.validation.json > "$private_dir/tabellio-validation-private.json" 2> "$private_dir/validation-stderr.log"; then
+            node scripts/validation-public-summary.mjs "$private_dir/tabellio-validation-private.json" tabellio-validation-result.json
+            echo "Product validation failed; inspect the trusted worker result. Missing genuine checkpoint evidence must fail the gate." >&2
+            exit 1
+          fi
+          node scripts/validation-public-summary.mjs "$private_dir/tabellio-validation-private.json" tabellio-validation-result.json
+      - name: Publish safe validation summary without artifact storage
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: tabellio-validation-${{ github.event.pull_request.head.sha || github.sha }}
-          path: |
-            tabellio-validation-result.json
-            refs/tabellio/validations/
-          if-no-files-found: warn
+        run: |
+          if [ -f tabellio-validation-result.json ]; then
+            cat tabellio-validation-result.json
+            cat tabellio-validation-result.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Product validation blocked before a safe result was produced.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Remove private checkpoint runner files
+        if: always()
+        run: node scripts/ci-checkpoint-evidence.mjs cleanup

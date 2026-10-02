@@ -65,6 +65,14 @@ test("Buildkite adds bounded pull-request quality gates without CI cutover", asy
   assert.doesNotMatch(pipeline, /build\.env\("BUILDKITE_PULL_REQUEST"\)/);
   assert.doesNotMatch(pipeline, /^\s+if:/m);
 
+  // Public provider artifacts contain bounded status, never private native evidence.
+  assert.match(pipeline, /tabellio-validation-result\.json/);
+  assert.doesNotMatch(pipeline, /validation-ref\.(?:bundle|sha)/);
+  assert.doesNotMatch(productValidation, /git bundle create .*validation-ref\.bundle/);
+  assert.match(productValidation, /node scripts\/validation-public-summary\.mjs/);
+  assert.match(productValidation, /tabellio-validation-private\.json" 2> "\$temporary_dir\/validation-stderr\.log"/);
+  assert.match(productValidation, /trap 'rm -rf "\$temporary_dir"' EXIT/);
+  assert.match(productValidation, /bash \.buildkite\/scripts\/checkpoint-evidence\.sh/);
   assert.doesNotMatch(productValidation, /git show -s --format=%s/);
   assertMatches(productValidation, [
     /BUILDKITE_COMMIT:-HEAD/,
@@ -75,8 +83,6 @@ test("Buildkite adds bounded pull-request quality gates without CI cutover", asy
     /decision":"not_required"/,
     /exit 0/,
     /test "\$\(git rev-parse HEAD\^\{commit\}\)"/,
-    /git bundle create .*validation-ref\.bundle/,
-    /git bundle verify .*validation-ref\.bundle/,
     /commits\/\$\{candidate\}\/pulls/,
     /scripts\/resolve-merged-checkpoint\.mjs/,
     /Merged checkpoint resolution failed/,
@@ -118,9 +124,26 @@ function assertMatches(value, patterns) {
 test("GitHub merged-head validation remains during Buildkite migration", async () => {
   const workflow = await repositoryFile(".github/workflows/product-validation.yml");
 
-  assert.match(workflow, /commits\/\$MERGED_COMMIT\/pulls/);
-  assert.match(workflow, /pull-requests: read/);
-  assert.match(workflow, /scripts\/resolve-merged-checkpoint\.mjs/);
+  assertMatches(workflow, [
+    /commits\/\$MERGED_COMMIT\/pulls/,
+    /pull-requests: read/,
+    /scripts\/resolve-merged-checkpoint\.mjs/,
+    /node scripts\/validation-public-summary\.mjs/,
+    /tabellio-validation-result\.json/,
+    /tabellio-validation-private\.json" 2> "\$private_dir\/validation-stderr\.log"/,
+    /trap 'rm -rf "\$private_dir"' EXIT/,
+    /node scripts\/ci-checkpoint-evidence\.mjs load/,
+    /node scripts\/ci-checkpoint-evidence\.mjs cleanup/,
+    /TABELLIO_CHECKPOINT_PROOF_1: \$\{\{ secrets\.TABELLIO_CHECKPOINT_PROOF_1 \}\}/,
+    /TABELLIO_CHECKPOINT_PROOF_2: \$\{\{ secrets\.TABELLIO_CHECKPOINT_PROOF_2 \}\}/,
+  ]);
+  const loader = await repositoryFile("scripts/ci-checkpoint-evidence.mjs");
+  assert.match(loader, /execFileSync\('bash', \['\.buildkite\/scripts\/checkpoint-evidence\.sh'\]/);
+  assert.match(loader, /envelope\.candidate !== git\('rev-parse', 'HEAD'\)/);
+  assert.match(loader, /envelope\.base !== git\('merge-base', 'origin\/main', 'HEAD'\)/);
+  assert.match(loader, /createHash\('sha256'\)\.update\(bytes\)\.digest\('hex'\) !== envelope\.sha256/);
+  assert.doesNotMatch(workflow, /refs\/tabellio\/validations\//);
+  assert.doesNotMatch(workflow, /validation-ref\.bundle/);
 });
 
 test("Git capability gate accepts the supported range and rejects unsafe bounds", async () => {

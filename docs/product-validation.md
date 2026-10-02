@@ -99,3 +99,46 @@ The runner creates a private `TabellioValidation-*` session under the system tem
 `gate` still records the result. It exits non-zero when the decision is `failed` or `blocked`.
 
 Artifact upload and path-based automatic validator selection remain scheduler or repository-policy responsibilities. The first contract keeps evaluation portable without creating a second CI or deployment authority.
+
+## Private metadata-only native checkpoint transport
+
+With pinned Entire 0.7.7 and supported Git, export only the checkpoint metadata
+needed by a candidate, while preserving original native commit/tree/object IDs:
+
+```sh
+npm run tabellio:checkpoint:export -- \
+  --repo . --repo-id github.com/OWNER/REPOSITORY \
+  --base origin/main --commit HEAD --out /private/operator/checkpoints.bundle
+```
+
+The exporter invokes the genuine native metadata reader and existing scope,
+completeness and Git trailer checks. It creates a native filtered Git bundle
+containing selected root/session metadata blobs, original commits and trees.
+Transcript and prompt blobs are excluded. The output is private: metadata may
+contain session IDs, file paths, summaries and token usage. Export does not
+publish the bundle or confer permission to transfer it.
+
+Supply the approved private file through `TABELLIO_CHECKPOINT_BUNDLE` on a
+trusted worker. `checkpoint-evidence.sh` imports filtered bundles through Git's
+promisor-aware unbundle path, retains the original advertised native ref, and
+rejects divergent or concurrently changed history. Existing complete bundles
+remain supported. Validators still use Entire's native reader and exact Git
+trailer associations; standalone JSON exports are not accepted.
+
+This does not add authenticated producer attestation: Entire 0.7.7 still does
+not detect a copied checkpoint ID on another commit. The operator supplying
+native evidence and the worker consuming it must remain trusted. No checkpoint
+record is synthesized or reconstructed. No private IntelIP remote is required.
+
+The repository's one-time GitHub proof uses a reviewer-protected temporary
+environment and two encrypted secret chunks. The private envelope binds the
+repository, candidate, merge base, bundle digest and native tip. The loader
+refuses mismatches and pre-existing native/validation refs. It never prints the
+payload or native metadata. The normal gate remains unchanged.
+
+The final cleanup step removes the temporary bundle and newly imported Git
+objects and private refs, preserving the original checkout objects. The operator
+must delete the temporary environment and secrets after the proof. Public logs
+contain only allowlisted gate status and cleanup outcome; no artifacts or caches
+receive private evidence. Subsequent candidates require their own genuine
+customer-owned evidence; deleted proof secrets cannot be reused.

@@ -11,6 +11,8 @@ on:
         required: true
         default: main
         type: string
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -27,15 +29,17 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 22.23.1
           package-manager-cache: false
-      - name: Install pinned security scanners
-        run: bash .buildkite/scripts/security-tools.sh
       - name: Run repository checks
-        run: npm run check
+        run: bash .buildkite/scripts/tests.sh
 
   fallow:
     name: Fallow changed-code
@@ -46,10 +50,12 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 22.23.1
           package-manager-cache: false
       - name: Install pinned security scanners
         run: bash .buildkite/scripts/security-tools.sh
@@ -82,16 +88,13 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 22.23.1
           package-manager-cache: false
       - name: Validate package contents
-        run: |
-          npm pack --dry-run --json > package-dry-run.json
-          jq '.[0] | {id, size, unpackedSize, entryCount}' package-dry-run.json
-          jq -e '
-            length == 1 and
-            ([.[0].files[].path | select(test("forgejo|change-request-provider"; "i"))] | length == 0)
-          ' package-dry-run.json >/dev/null
+        run: bash .buildkite/scripts/package.sh

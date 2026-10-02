@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "tabellio-platform/v0.3",
+  "schemaVersion": "tabellio-platform/v0.4",
   "codeStorage": {
     "provider": "github",
     "remoteName": "origin",
@@ -12,9 +12,9 @@
   },
   "workflow": {
     "stackManager": "git-spice",
-    "controlState": "external",
-    "controlProvider": "github",
-    "controlRemoteName": "control",
+    "controlState": "local",
+    "controlProvider": "local",
+    "controlRemoteName": null,
     "publishControlRefsToCodeStorage": false,
     "controlRefs": [
       "refs/tabellio/reviews",
@@ -24,18 +24,18 @@
   },
   "ledger": {
     "provider": "entire",
-    "storage": "external",
+    "storage": "local",
     "checkpointRef": "refs/heads/entire/checkpoints/v1"
   },
   "validation": {
     "runner": "tabellio-validate",
     "manifest": "tabellio.validation.json",
-    "storage": "external",
+    "storage": "local",
     "resultRef": "refs/tabellio/validations"
   },
   "reviews": {
     "provider": "tabellio",
-    "storage": "external",
+    "storage": "local",
     "stateRef": "refs/tabellio/reviews"
   }
 }

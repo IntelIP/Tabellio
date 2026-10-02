@@ -53,7 +53,7 @@ The runner:
 7. Removes the worktree even after failure.
 8. Writes an integrity-protected result to `refs/tabellio/validations` with compare-and-swap retries.
 
-Command-manifest results use `tabellio-validation-result/v0.2`. Product-validation results use v0.4 and embed the acceptance digest, typed validator results, bounded evidence reports, total observed validation cost, final policy decision, and exact Tabellio runner identity when available. Both require `checkpointRevision` so checkpoint proof remains bound to the pull-request head when the validated revision is a later squash-merge commit. Runtime readers continue to accept v0.1 through v0.4 results.
+New command and product results use `tabellio-validation-result/v0.5`, distinguished by `kind`. Product results embed the acceptance digest, typed validator results, bounded evidence reports, total observed validation cost, final policy decision, and exact Tabellio runner identity when available. Both require `checkpointRevision` so checkpoint proof remains bound to the pull-request head when the validated revision is a later squash-merge commit. Runtime readers continue to accept v0.1 through v0.5 results, subject to the evidence eligibility rules below.
 
 Read the newest result for a commit:
 
@@ -72,3 +72,37 @@ Publishing `refs/tabellio/validations` to a remote is a separate approved Git wr
 Detached worktrees and isolated home directories protect host source and common credential paths; they are not a hostile-code sandbox. Validation commands can execute arbitrary repository code and use the network. Run untrusted contributions in a disposable VM, container, or sandbox with scoped credentials and network policy. Never place secrets in manifest arguments or print them: argv and bounded output tails are retained as durable evidence.
 
 Typed validation does not authorize live writes. Repository adapters should use fixtures, isolated namespaces, read-only credentials, and explicit cost caps. Artifact metadata must point to durable content-addressed storage when a reviewer needs the screenshot, trace, or report after the temporary worktree is removed.
+
+## Resolved checkpoint evidence (v0.5)
+
+A required Entire prerequisite resolves every 12-hex trailer ID through the
+installed Entire CLI (>=0.7.7) before running validator commands. Missing,
+wrong-ID, partial, malformed, empty-session or session-error metadata blocks the
+run. New v0.5 results distinguish `kind: commands` from `kind: product` and carry
+`checkpointEvidence`: a versioned metadata-only ledger snapshot, or null when the
+manifest does not require checkpoints. Required snapshots include CLI version,
+metadata digests, the checkpoint-source range and every trailer-bearing commit.
+No transcript bytes are included. Both result kinds now record runner identity.
+
+When selecting stored results, required-checkpoint manifests reject historical
+trailer-only evidence. Selection also checks the committed manifest digest and
+rechecks the snapshot's commit/trailer associations in Git. Historical results
+remain readable; rerun validation to make them eligible for the stronger gate.
+Squash validation still executes the merged head while resolving metadata against
+the explicitly recorded pre-merge PR range. A checkpoint ref and working Entire
+CLI must be available to the trusted validation worker; this does not authorize
+publishing private refs to the public code repository or loosening any gate.
+
+**Trust limit:** Entire v0.7.7's export does not contain an independently
+verifiable commit, tree or candidate binding. The CLI's `--commit` lookup itself
+reads the commit trailer; it does not authenticate who captured that session.
+This gate proves that referenced metadata resolves completely and records its
+exact Git associations. It cannot detect someone copying an unrelated, existing
+checkpoint ID into a new commit. Genuine session provenance still requires the
+approved capture workflow and trusted evidence production. Digests detect changes,
+not producer forgery. Stronger authenticated binding requires a separate upstream
+or trusted capture contract; it must not be invented from file overlap or trailers.
+
+The checkpoint regressions use explicitly synthetic metadata/executables in
+throwaway repositories. Their wrong-commit case corrupts the stored Git association;
+it does not pretend Entire exports an independent commit SHA.

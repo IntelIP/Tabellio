@@ -1,3 +1,4 @@
+import { installEntireFixture, fixtureCheckpoint } from "./helpers/entire-fixture.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
@@ -33,10 +34,12 @@ test("validation gate binds squash-merge execution to the pre-merge checkpoint r
   const workspaceRoot = join(fixture.root, "SquashValidationRoot");
   await mkdir(workspaceRoot);
   const value = manifest([process.execPath, "-e", "process.exit(0)"]);
+  value.requireEntireCheckpoint = true;
+  await installEntireFixture(t, fixture.root, { abcdef123456: fixtureCheckpoint("abcdef123456") });
   await writeFile(`${fixture.seed}/tabellio.validation.json`, `${JSON.stringify(value, null, 2)}\n`);
   await runGit({ args: ["add", "tabellio.validation.json"], cwd: fixture.seed });
   await runGit({
-    args: ["commit", "-m", "Checkpoint pull-request head", "-m", "Entire-Checkpoint: checkpointed-pr-head"],
+    args: ["commit", "-m", "Checkpoint pull-request head", "-m", "Entire-Checkpoint: abcdef123456"],
     cwd: fixture.seed,
     env: identityEnv(),
   });
@@ -55,7 +58,7 @@ test("validation gate binds squash-merge execution to the pre-merge checkpoint r
   assert.equal(result.exitCode, 0);
   assert.equal(result.output.result.revision.headCommit, mergedHead);
   assert.equal(result.output.result.checkpointRevision.headCommit, checkpointHead);
-  assert.deepEqual(result.output.result.checkpoints, ["checkpointed-pr-head"]);
+  assert.deepEqual(result.output.result.checkpoints, ["abcdef123456"]);
   assert.deepEqual(await readdir(workspaceRoot), []);
 });
 

@@ -115,14 +115,14 @@ and publishes separate `Tabellio / provenance review` and
 `tabellio-provenance-status-approval/v0.1` with `id`, `intentDigest`, `approved: true`,
 `approvedBy`, `approvedAt`, `expiresAt`, and `reason`; its lifetime is at most one
 hour. Publication receipts report delivery separately from review verdicts.
-Each intent explicitly targets the configured `control` remote. Each approval is
-reserved there in `refs/tabellio/provenance-status-reservations/<approval digest>` before
-GitHub delivery. Production publication uses authenticated `gh` to verify a
-separate private control repository and consistent fetch/push targets before
-each control write. Remote compare-and-swap allows one publisher across clones;
-repeated requests reuse the receipt, and uncertain attempts require inspection
-before a new approval. The local demo exercises this flow through a fake GitHub
-transport and compares the delivered states with the CLI result.
+Local operation needs no second GitHub repository. For status publication, select
+one existing customer-owned bare Git authority with `--publication-store
+/absolute/private/authority.git` when creating the intent. Every publisher must
+use the same authority. Its atomic reservations prevent duplicate approval use;
+uncertain delivery remains blocked until reconciled. This is a trusted-worker
+contract, not distributed safety across independent local stores. Optional private
+GitHub control transport remains available explicitly for existing deployments.
+The demo uses synthetic provider records and a fake GitHub transport.
 
 The `tabellio-provenance` CLI supports `capture`, `import`, `import-sources`, `replay`, `replay-sources`,
 `show`, `review`, `review-intent`, `publish-review`, and `packet`. `import-sources` normalizes a bundle of Plane,
@@ -229,13 +229,13 @@ locally packed candidate. Registry availability is part of the release gate.
 Enable the required ledger, initialize stacks, and validate the canonical platform contract:
 
 ```bash
-entire enable --agent codex --project
+entire enable --agent codex --project --skip-push-sessions
 git-spice repo init
 npm run tabellio:platform:check
 node scripts/tabellio-validate.mjs run --repo . --commit HEAD --manifest tabellio.validation.json
 ```
 
-Configure Entire's supported `strategy_options.checkpoint_remote` in `.entire/settings.json` to target the private GitHub control repository, and keep `strategy_options.push_sessions` false. Tabellio preflight fails closed when the effective checkpoint remote differs from the platform control remote or automatic checkpoint pushing could bypass release approval.
+The default v0.4 platform keeps Entire checkpoint, review and validation refs locally. Keep `strategy_options.push_sessions` false for local operation. An existing checkpoint remote remains inactive and is not contacted. Genuine native checkpoint metadata is still required; a trailer alone cannot satisfy validation. Existing v0.3 private-remote configurations remain supported explicitly.
 
 Use `gate` in CI. It persists the same exact-head result but exits non-zero unless the final decision is `passed`:
 
@@ -378,6 +378,7 @@ The external-action checker fails when an action is marked `attempted: true` wit
 - [Exact-commit validation](docs/validation-runner.md)
 - [Exact-head validation status](docs/merge-ready-status.md)
 - [Operations hardening](docs/operations-hardening.md)
+- [Core pilot acceptance and benchmark plan](docs/pilot/acceptance-plan.md)
 - [Workflow model](docs/workflow-model.md)
 - [Native Git foundation](docs/native-git-foundation.md)
 - [Evidence schema](docs/evidence-schema.md)

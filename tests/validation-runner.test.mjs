@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, mkdir, readFile, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import test from "node:test";
 
 import { GitJsonLedger } from "../scripts/lib/git-json-ledger.mjs";
@@ -15,7 +15,15 @@ import {
   validateValidatorEvidence,
 } from "../scripts/lib/validation-runner.mjs";
 import { NativeGitStore } from "../scripts/providers/native-git-store.mjs";
-import { createFeatureFixture, identityEnv } from "./helpers/git-fixture.mjs";
+import { createFeatureFixture as createGitFeatureFixture, identityEnv } from "./helpers/git-fixture.mjs";
+
+import { createValidationRunner } from "./helpers/validation-fixture.mjs";
+import { installEntireFixture, fixtureCheckpoint, fixtureCheckpointId } from "./helpers/entire-fixture.mjs";
+async function createFeatureFixture(t) {
+  const fixture = await createGitFeatureFixture(t);
+  await installEntireFixture(t, fixture.root);
+  return fixture;
+}
 
 test("validation runner executes exact committed manifests and stores bounded results", async (t) => {
   const previousArtifactBaseUri = process.env.TABELLIO_ARTIFACT_BASE_URI;
@@ -44,9 +52,7 @@ test("validation runner executes exact committed manifests and stores bounded re
   await commit(fixture.seed, "Add passing validation", "validation-pass");
   const passingHead = await head(fixture.seed);
 
-  const store = await NativeGitStore.open(fixture.seed);
-  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
-  const runner = new ValidationRunner({ store, ledger });
+  const { store, ledger, runner } = await createValidationRunner(fixture.seed);
   const repositoryId = await repositoryIdentity(store, "example/repository");
   const passed = await runner.run({
     repositoryId,
@@ -56,7 +62,7 @@ test("validation runner executes exact committed manifests and stores bounded re
     now: new Date("2026-07-10T20:00:00.000Z"),
   });
   assert.equal(passed.result.status, "passed");
-  assert.deepEqual(passed.result.checkpoints, ["validation-pass"]);
+  assert.deepEqual(passed.result.checkpoints, [fixtureCheckpointId("validation-pass")]);
   assert.equal(passed.result.commands[0].stdout.bytes, 20000);
   assert.equal(passed.result.commands[0].stdout.truncated, true);
   assert.equal(Buffer.byteLength(passed.result.commands[0].stdout.tail), 16 * 1024);
@@ -176,7 +182,7 @@ test("validation runner executes exact committed manifests and stores bounded re
   assert.equal(failed.result.status, "failed");
   assert.equal(failed.result.commands[0].exitCode, 3);
   assert.equal(failed.result.commands[1].status, "skipped");
-  assert.deepEqual(failed.result.checkpoints, ["validation-fail", "validation-pass"]);
+  assert.deepEqual(failed.result.checkpoints, [fixtureCheckpointId("validation-fail"), fixtureCheckpointId("validation-pass")].sort());
 
   const worktrees = await runGit({ args: ["worktree", "list", "--porcelain"], cwd: fixture.seed });
   assert.equal(worktrees.stdout.includes(passed.result.runId), false);
@@ -309,9 +315,7 @@ test("validation manifest rejects shell-like ambiguity and missing checkpoint ra
   ]), null, 2));
   await runGit({ args: ["add", "tabellio.validation.json"], cwd: fixture.seed });
   await runGit({ args: ["commit", "-m", "Manifest without checkpoint"], cwd: fixture.seed, env: identityEnv() });
-  const store = await NativeGitStore.open(fixture.seed);
-  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
-  const runner = new ValidationRunner({ store, ledger });
+  const { runner } = await createValidationRunner(fixture.seed);
   await assert.rejects(
     runner.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" }),
     /has no Entire checkpoint/,
@@ -325,9 +329,7 @@ test("validation runner terminates timed-out commands and skips remaining fail-f
     command("must-skip", [process.execPath, "-e", "process.exit(0)"]),
   ]), null, 2));
   await commit(fixture.seed, "Add timeout validation", "validation-timeout");
-  const store = await NativeGitStore.open(fixture.seed);
-  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
-  const runner = new ValidationRunner({ store, ledger });
+  const { runner } = await createValidationRunner(fixture.seed);
   const started = Date.now();
   const result = await runner.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" });
   assert.equal(result.result.status, "failed");
@@ -344,6 +346,7 @@ test("identity-required manifests reject legacy evidence without breaking legacy
       typedValidator("static-checks", "static", [process.execPath, "-e", "process.exit(0)"], null),
     ], ["static"]);
     definition.requireRunnerIdentity = requireRunnerIdentity;
+    definition.requireEntireCheckpoint = false; // Isolate legacy runner-identity compatibility.
     await writeFile(`${fixture.seed}/tabellio.validation.json`, JSON.stringify(definition));
     await commit(fixture.seed, "identity-requirement", "identity-requirement");
     const { store, ledger, externalRoot } = await externalValidationHarness(fixture);
@@ -352,6 +355,8 @@ test("identity-required manifests reject legacy evidence without breaking legacy
     assert.equal(current.result.status, "passed");
     const legacy = structuredClone(current.result);
     legacy.schemaVersion = "tabellio-validation-result/v0.3";
+    delete legacy.kind;
+    delete legacy.checkpointEvidence;
     legacy.runner = { id: legacy.runner.id, runtime: legacy.runner.runtime };
     legacy.completedAt = new Date(Date.parse(legacy.completedAt) + 1000).toISOString();
     const { integrity: _integrity, ...unsigned } = legacy;
@@ -422,7 +427,7 @@ test("typed validators enforce semantic metrics and cost budgets with durable ev
     runnerId: "product-validator",
   });
 
-  assert.equal(result.result.schemaVersion, "tabellio-validation-result/v0.4");
+  assert.equal(result.result.schemaVersion, "tabellio-validation-result/v0.5");
   assert.equal(result.result.runner.packageName, "@intelip/tabellio");
   assert.equal(result.result.runner.packageVersion, "0.6.0");
   assert.equal(result.result.runner.sourceCommit, "a".repeat(40));
@@ -479,9 +484,7 @@ test("typed validation distinguishes product failure from blocked evidence", asy
     ),
   ], ["semantic"]), null, 2));
   await commit(fixture.seed, "Add failing semantic validation", "product-validation-fail");
-  const store = await NativeGitStore.open(fixture.seed);
-  const ledger = await GitJsonLedger.open({ repoPath: fixture.seed, ref: "refs/tabellio/validations" });
-  const runner = new ValidationRunner({ store, ledger });
+  const { runner } = await createValidationRunner(fixture.seed);
   const failed = await runner.run({ repositoryId: "example/repository", commit: "HEAD", base: "main" });
   assert.equal(failed.result.status, "failed");
   assert.equal(failed.result.validators[0].status, "failed");
@@ -668,6 +671,11 @@ function evidenceCommand(path, evidence) {
 }
 
 async function commit(cwd, message, checkpoint) {
+  checkpoint = fixtureCheckpointId(checkpoint);
+  const path = join(dirname(cwd), "synthetic-entire-bin", "metadata.json");
+  const entries = JSON.parse(await readFile(path, "utf8"));
+  entries[checkpoint] = fixtureCheckpoint(checkpoint);
+  await writeFile(path, JSON.stringify(entries));
   await runGit({ args: ["add", "tabellio.validation.json"], cwd });
   await runGit({
     args: ["commit", "-m", message, "-m", `Entire-Checkpoint: ${checkpoint}`],

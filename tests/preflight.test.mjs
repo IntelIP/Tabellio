@@ -7,7 +7,7 @@ import test from "node:test";
 import { runGit } from "../scripts/lib/git-process.mjs";
 import { runPreflight, validatePreflightResult } from "../scripts/lib/preflight.mjs";
 import { createFixture, identityEnv } from "./helpers/git-fixture.mjs";
-import { platformFixture } from "./helpers/platform-fixture.mjs";
+import { localPlatformFixture, platformFixture } from "./helpers/platform-fixture.mjs";
 
 test("preflight proves GitHub and Entire readiness without exposing credentials", async (t) => {
   const fixture = await preparedFixture(t);
@@ -739,3 +739,46 @@ function hookConfigEventName(event) {
 function hookEventSnakeCase(eventName) {
   return eventName.replace(/[A-Z]/g, (character) => `_${character.toLowerCase()}`);
 }
+
+async function localPreparedFixture(t) {
+  const fixture = await preparedFixture(t);
+  await writeFile(join(fixture.seed, "tabellio.platform.json"), JSON.stringify(localPlatformFixture()));
+  await writeFile(join(fixture.seed, ".entire", "settings.json"), JSON.stringify({ enabled: true, strategy_options: { push_sessions: false } }));
+  await runGit({ args: ["remote", "remove", "control"], cwd: fixture.seed });
+  return fixture;
+}
+
+test("local preflight needs no control repository, credentials or network", async (t) => {
+  const fixture = await localPreparedFixture(t);
+  const commands = fakeCommands();
+  const result = await runPreparedPreflight(fixture, {
+    commandRunner: async (request) => {
+      assert.notEqual(request.binary, "gh");
+      return commands(request);
+    },
+    remoteRefReader: async () => { throw new Error("Unexpected network access"); },
+    remoteRepositoryReader: async () => { throw new Error("Unexpected remote access"); },
+  });
+  assert.equal(result.status, "ready");
+  assert.equal(result.checks.some((check) => check.id === "github-auth"), false);
+  await runGit({ args: ["update-ref", "-d", "refs/heads/entire/checkpoints/v1"], cwd: fixture.seed });
+  const initial = await runPreparedPreflight(fixture, { commandRunner: commands, remoteRefReader: async () => { throw new Error("Unexpected network access"); } });
+  assert.equal(initial.status, "ready");
+});
+
+test("local preflight blocks automatic publication and permits dormant remotes without network access", async (t) => {
+  const fixture = await localPreparedFixture(t);
+  await writeFile(join(fixture.seed, ".entire", "settings.local.json"), JSON.stringify({ strategy_options: { push_sessions: true } }));
+  let result = await runPreparedPreflight(fixture, { commandRunner: fakeCommands() });
+  assert.match(result.checks.find((check) => check.id === "entire-metadata").detail, /automatic checkpoint pushing/);
+  await writeFile(join(fixture.seed, ".entire", "settings.local.json"), JSON.stringify({ strategy_options: { checkpoint_remote: { provider: "github", repo: "example/old-control" } } }));
+  result = await runPreparedPreflight(fixture, {
+    commandRunner: fakeCommands(),
+    remoteRefReader: async () => { throw new Error("Unexpected network access"); },
+    remoteRepositoryReader: async () => { throw new Error("Unexpected remote access"); },
+  });
+  assert.equal(result.status, "ready");
+  assert.match(result.checks.find((check) => check.id === "entire-metadata").detail, /does not contact or publish/);
+  result = await runPreparedPreflight(fixture, { commandRunner: fakeCommands(), controlRemote: "control" });
+  assert.equal(result.checks.find((check) => check.id === "github-remotes").status, "blocked");
+});

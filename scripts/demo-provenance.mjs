@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { provenanceDemoFailure } from "./lib/provenance-demo-failure.mjs";
 import { LocalProvenanceStore } from "./lib/local-provenance-store.mjs";
 import { captureCandidate } from "./lib/provenance-ledger.mjs";
 import { sampleObservations } from "../examples/provenance/sample.mjs";
@@ -65,9 +66,8 @@ try {
   const git = (...args) => run("git", ["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], repo);
   await git("init", "-b", "main");
   await git("remote", "add", "origin", "https://github.com/sample/repository.git");
-  const control = join(repo, "..", "control.git");
+  const control = join(repo, "..", "publication.git");
   await git("init", "--bare", control);
-  await git("remote", "add", "control", control);
   await writeFile(join(repo, "app.mjs"), "export const greeting = 'Hello';\n");
   await git("add", "app.mjs");
   await git("commit", "-m", "Create sample application");
@@ -132,7 +132,7 @@ try {
   const publicationLineage = await invoke("show", ...publicationQuery);
   const publicationReview = await invoke("review", ...publicationArgs);
   if (publicationReview.status !== "passed") throw new Error("Secured lineage review did not pass.");
-  const statusIntent = await invoke("review-intent", ...publicationArgs);
+  const statusIntent = await invoke("review-intent", ...publicationArgs, "--publication-store", join(repo, "..", "publication.git"));
   const statusPublication = await publishSampleStatuses({ repo, lineage: publicationLineage, intent: statusIntent, cli: publicationReview, now });
   const store = new LocalProvenanceStore({ databaseUrl }); await store.migrate();
   await run("createdb", ["--host", socketRoot, "--username", "tabellio", "--no-password", "tabellio_replay"]);
@@ -193,8 +193,7 @@ try {
   );
 } catch (error) {
   const postgresLog = await readFile(join(root, "postgres.log"), "utf8").catch(() => "");
-  const socketPathFailure = /Unix-domain socket path.*too long/i.test(postgresLog);
-  receipt = { status: "blocked", failureClass: socketPathFailure ? "socket_path_too_long" : "local_command_failed", exitCode: typeof error.code === "number" ? error.code : null, reason: "Sample demo failed. Requires local PostgreSQL server/client binaries and Git; no provider credentials are required." };
+  receipt = { status: "blocked", ...provenanceDemoFailure(error, postgresLog), exitCode: typeof error?.code === "number" ? error.code : null };
   process.exitCode = 1;
 } finally {
   try {
@@ -271,15 +270,7 @@ async function publishSampleStatuses({ repo, lineage, intent, cli, now }) {
     return new Response(JSON.stringify({ ...body, id: requests.length, created_at: now }), { status: 201 });
   } });
   const approval = { schemaVersion: "tabellio-provenance-status-approval/v0.1", id: "sample-review-status", intentDigest: intent.integrity.digest, approved: true, approvedBy: "Synthetic demo", approvedAt: now, expiresAt: new Date(Date.parse(now) + 60000).toISOString(), reason: "Local fake GitHub transport only." };
-  const controlVerifier = async () => {
-    const expected = join(repo, "..", "control.git");
-    for (const mode of [[], ["--push"]]) {
-      const actual = await execute("git", ["remote", "get-url", ...mode, "control"], { cwd: repo });
-      if (actual.stdout.trim() !== expected) throw new Error("Sample control transport changed.");
-    }
-    return expected;
-  };
-  const publication = await publishProvenanceStatuses({ repo, lineage, intent, approval, publisher, now, controlVerifier });
+  const publication = await publishProvenanceStatuses({ repo, lineage, intent, approval, publisher, now });
   if (publication.status !== "published" || requests.length !== 2) throw new Error("Sample status publication failed.");
   for (const [index, request] of requests.entries()) {
     const expected = cli.github[index];

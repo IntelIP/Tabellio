@@ -109,12 +109,12 @@ class ReleaseActions {
   async #verify({ intent }) {
     const [repositoryId, controlRepository, head, trackedMain, packageResult, notesSource, refs] = await Promise.all([
       this.codeRepositoryReader(this.store),
-      this.controlRepositoryReader(this.store, intent.control.intent.remote, this.ghBinary, this.commandRunner),
+      isLocalControl(intent) ? Promise.resolve(null) : this.controlRepositoryReader(this.store, intent.control.intent.remote, this.ghBinary, this.commandRunner),
       this.store.resolveRef("HEAD"),
       this.store.resolveRef("origin/main"),
       runGit({ args: ["show", `${intent.revision.commit}:package.json`], cwd: this.store.repoPath }),
       sourceAtCommit(this.store.repoPath, intent.revision.commit, intent.release.notesPath),
-      snapshotControlRefs({
+      isLocalControl(intent) ? readLocalReleaseRefs(this.store, intent) : snapshotControlRefs({
         repoPath: this.store.repoPath,
         remote: intent.control.intent.remote,
         refs: intent.control.intent.refs.map((entry) => entry.name),
@@ -125,10 +125,14 @@ class ReleaseActions {
     const branch = await runGit({ args: ["branch", "--show-current"], cwd: this.store.repoPath });
     assertReleaseRepository({ repositoryId, controlRepository, head, trackedMain, liveMain, branch: branch.stdout, status: status.stdout }, intent);
     assertReleaseArtifacts({ packageSource: packageResult.stdout, notesSource, refs }, intent);
-    return { commit: head, version: intent.version, controlIntentDigest: intent.control.intent.integrity.digest };
+    return { commit: head, version: intent.version, evidenceDigest: isLocalControl(intent) ? intent.integrity.digest : intent.control.intent.integrity.digest };
   }
 
   async #publishControl({ intent, approval, now }) {
+    if (isLocalControl(intent)) {
+      assertLocalReleaseRefs(await readLocalReleaseRefs(this.store, intent), intent.control.refs);
+      return { status: "verified-local", refs: intent.control.refs.map((ref) => ref.name) };
+    }
     const controlRepository = await this.controlRepositoryReader(this.store, intent.control.intent.remote, this.ghBinary, this.commandRunner);
     assertControlRepository(controlRepository, intent);
     const snapshot = await snapshotControlRefs({
@@ -162,10 +166,15 @@ class ReleaseActions {
     return { status: result.status, approvalId: result.approvalId, refs: result.refs };
   }
 
-  async #publishTag({ intent }) {
+  async #verifyPublicationEvidence(intent, identityMessage) {
+    if (isLocalControl(intent)) assertLocalReleaseRefs(await readLocalReleaseRefs(this.store, intent), intent.control.refs);
     const repositoryId = await this.codeRepositoryReader(this.store);
-    assertRepositoryIdentity(repositoryId, intent.repository.id, "Release repository identity changed before tag publication.");
-    const canonicalObject = await canonicalTagObject(this.store.repoPath, intent);
+    assertRepositoryIdentity(repositoryId, intent.repository.id, identityMessage);
+    return canonicalTagObject(this.store.repoPath, intent);
+  }
+
+  async #publishTag({ intent }) {
+    const canonicalObject = await this.#verifyPublicationEvidence(intent, "Release repository identity changed before tag publication.");
     let local = await localTagState(this.store.repoPath, intent.tag);
     const remote = await remoteTagState(this.store.repoPath, intent.code.remote, intent.tag);
     assertTagTarget(local, intent, "locally", canonicalObject);
@@ -181,9 +190,7 @@ class ReleaseActions {
   }
 
   async #publishRelease({ intent }) {
-    const repositoryId = await this.codeRepositoryReader(this.store);
-    assertRepositoryIdentity(repositoryId, intent.repository.id, "Release repository identity changed before GitHub release publication.");
-    const canonicalObject = await canonicalTagObject(this.store.repoPath, intent);
+    const canonicalObject = await this.#verifyPublicationEvidence(intent, "Release repository identity changed before GitHub release publication.");
     const remoteTag = await remoteTagState(this.store.repoPath, intent.code.remote, intent.tag);
     if (!remoteTag) throw new Error(`${intent.tag} is missing remotely before GitHub release publication.`);
     assertTagTarget(remoteTag, intent, "remotely", canonicalObject);
@@ -270,7 +277,7 @@ function assertReleaseRepository(actual, intent) {
 
 function assertReleaseRevision(actual, intent) {
   assertRepositoryIdentity(actual.repositoryId, intent.repository.id, "Release repository identity changed.");
-  assertControlRepository(actual.controlRepository, intent);
+  if (!isLocalControl(intent)) assertControlRepository(actual.controlRepository, intent);
   assertEqual(actual.head, intent.revision.commit, "Release HEAD changed after planning.");
   assertEqual(actual.trackedMain, actual.head, "Release commit no longer equals tracked origin/main.");
   assertEqual(actual.liveMain, actual.head, "Release commit no longer equals live origin/main.");
@@ -284,7 +291,8 @@ function assertReleaseWorkspace(actual) {
 function assertReleaseArtifacts(actual, intent) {
   if (JSON.parse(actual.packageSource).version !== intent.version) throw new Error("package.json version changed after release planning.");
   if (sha256(actual.notesSource) !== intent.release.notesDigest) throw new Error("Release notes changed after release planning.");
-  controlPublicationState(actual.refs, intent.control.intent.refs);
+  if (isLocalControl(intent)) assertLocalReleaseRefs(actual.refs, intent.control.refs);
+  else controlPublicationState(actual.refs, intent.control.intent.refs);
 }
 
 function assertTagTarget(target, intent, location, canonicalObject) {
@@ -579,4 +587,18 @@ function sha256(value) {
 
 function safeError(error) {
   return (error instanceof Error ? error.message : String(error)).replace(/gho_[A-Za-z0-9_]+/g, "[REDACTED]").slice(0, 500);
+}
+
+function isLocalControl(intent) {
+  return intent.schemaVersion === "tabellio-release-operation/v0.2";
+}
+
+async function readLocalReleaseRefs(store, intent) {
+  return Promise.all(intent.control.refs.map(async ({ name }) => ({ name, localOid: await store.resolveRef(name) })));
+}
+
+function assertLocalReleaseRefs(actual, approved) {
+  for (const ref of approved) {
+    assertEqual(actual.find((entry) => entry.name === ref.name)?.localOid, ref.localOid, `Approved local control ref ${ref.name} changed.`);
+  }
 }

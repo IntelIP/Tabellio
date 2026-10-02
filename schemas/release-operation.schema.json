@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "repository", "version", "tag", "revision", "pullRequest", "code", "control", "validation", "release", "createdAt", "integrity"],
   "properties": {
-    "schemaVersion": { "const": "tabellio-release-operation/v0.1" },
+    "schemaVersion": { "enum": ["tabellio-release-operation/v0.1", "tabellio-release-operation/v0.2"] },
     "repository": {
       "type": "object",
       "additionalProperties": false,
@@ -47,33 +47,7 @@
         "branch": { "const": "main" }
       }
     },
-    "control": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["repository", "intent"],
-      "properties": {
-        "repository": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["id"],
-          "properties": { "id": { "type": "string", "minLength": 1 } }
-        },
-        "intent": {
-          "$ref": "urn:tabellio:schema:control-ref-operation:v0.1",
-          "properties": {
-            "refs": {
-              "minItems": 3,
-              "maxItems": 3,
-              "allOf": [
-                { "contains": { "type": "object", "properties": { "name": { "const": "refs/tabellio/reviews" } }, "required": ["name"] }, "minContains": 1 },
-                { "contains": { "type": "object", "properties": { "name": { "const": "refs/tabellio/validations" } }, "required": ["name"] }, "minContains": 1 },
-                { "contains": { "type": "object", "properties": { "name": { "const": "refs/heads/entire/checkpoints/v1" } }, "required": ["name"] }, "minContains": 1 }
-              ]
-            }
-          }
-        }
-      }
-    },
+    "control": { "oneOf": [{ "$ref": "#/$defs/remoteControl" }, { "$ref": "#/$defs/localControl" }] },
     "validation": {
       "type": "object",
       "additionalProperties": false,
@@ -106,7 +80,36 @@
       }
     }
   },
+  "allOf": [{"if": {"properties": {"schemaVersion": {"const": "tabellio-release-operation/v0.2"}}}, "then": {"properties": {"control": {"$ref": "#/$defs/localControl"}}}, "else": {"properties": {"control": {"$ref": "#/$defs/remoteControl"}}}}],
   "$defs": {
+    "remoteControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "intent"],
+      "properties": {
+        "repository": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id"],
+          "properties": { "id": { "type": "string", "minLength": 1 } }
+        },
+        "intent": {
+          "$ref": "urn:tabellio:schema:control-ref-operation:v0.1",
+          "properties": {
+            "refs": {
+              "minItems": 3,
+              "maxItems": 3,
+              "allOf": [
+                { "contains": { "type": "object", "properties": { "name": { "const": "refs/tabellio/reviews" } }, "required": ["name"] }, "minContains": 1 },
+                { "contains": { "type": "object", "properties": { "name": { "const": "refs/tabellio/validations" } }, "required": ["name"] }, "minContains": 1 },
+                { "contains": { "type": "object", "properties": { "name": { "const": "refs/heads/entire/checkpoints/v1" } }, "required": ["name"] }, "minContains": 1 }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "localControl": {"type": "object", "additionalProperties": false, "required": ["mode", "refs"], "properties": {"mode": {"const": "local"}, "refs": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["name", "localOid"], "properties": {"name": {"enum": ["refs/tabellio/reviews", "refs/tabellio/validations", "refs/heads/entire/checkpoints/v1"]}, "localOid": {"$ref": "#/$defs/oid"}}}, "allOf": [{"contains": {"properties": {"name": {"const": "refs/tabellio/reviews"}}, "required": ["name"]}, "minContains": 1}, {"contains": {"properties": {"name": {"const": "refs/tabellio/validations"}}, "required": ["name"]}, "minContains": 1}, {"contains": {"properties": {"name": {"const": "refs/heads/entire/checkpoints/v1"}}, "required": ["name"]}, "minContains": 1}]}}},
     "oid": { "type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$" },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
   }

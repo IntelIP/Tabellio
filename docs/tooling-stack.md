@@ -39,7 +39,7 @@ task source
   -> read-only merge preview
   -> exact-commit validation result
   -> thin code pull request
-  -> approved control-ref publication
+  -> local evidence retention / optional approved private publication
   -> explicit compare-and-swap merge or release gate
 ```
 
@@ -80,7 +80,7 @@ Included:
 
 Not included yet:
 
-- external control-state service selection and deployment
+- optional external control-state service selection and deployment
 - transcript indexing or storage outside Entire
 - GitHub comment publication, general review-thread mutation, and signed approvals
 - Codex review automation
@@ -115,7 +115,7 @@ This repository disables automatic checkpoint pushes to `origin`. Commit trailer
 
 ## GitHub Code-Storage Boundary
 
-GitHub receives ordinary code branches, tags, and the minimum pull-request metadata needed for human accountability. `refs/tabellio/reviews`, `refs/tabellio/validations`, and `refs/heads/entire/checkpoints/v1` remain external. The control-ref transport rejects `origin` even when a caller supplies it explicitly.
+GitHub receives ordinary code branches, tags, and the minimum pull-request metadata needed for human accountability. `refs/tabellio/reviews`, `refs/tabellio/validations`, and `refs/heads/entire/checkpoints/v1` remain private and local by default; optional external transport is explicit. The control-ref transport rejects `origin` even when a caller supplies it explicitly.
 
 The boundary is contractual, not only documentary: `tabellio.platform.json`, its JSON Schema, runtime validation, and transport tests all fail closed on GitHub or publication-policy drift. See [GitHub code-storage boundary](github-code-storage-boundary.md).
 

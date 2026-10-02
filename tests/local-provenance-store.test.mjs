@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -17,6 +17,13 @@ const execFileAsync = promisify(execFile);
 const postgresHost = process.env.TABELLIO_TEST_PG_SOCKET ?? "127.0.0.1";
 const postgresUser = process.env.TABELLIO_TEST_PG_USER;
 const postgresArgs = ["--host", postgresHost, ...(postgresUser ? ["--username", postgresUser] : [])];
+async function createMigratedTestStore(t) {
+  const databaseName = await createTestDatabase(t);
+  const databaseUrl = testDatabaseUrl(databaseName);
+  const store = new LocalProvenanceStore({ databaseUrl });
+  await store.migrate();
+  return { databaseName, databaseUrl, store };
+}
 function testDatabaseUrl(name) {
   return `postgresql://${postgresUser ? `${encodeURIComponent(postgresUser)}@` : ""}localhost/${name}?host=${encodeURIComponent(postgresHost)}`;
 }
@@ -27,9 +34,7 @@ test("required PostgreSQL integration environment is available", () => {
 });
 
 test("lineage persists atomically, isolates projects, and replays from original fixtures", { skip: !postgresAvailable }, async (t) => {
-  const databaseName = await createTestDatabase(t);
-  const databaseUrl = testDatabaseUrl(databaseName);
-  const store = new LocalProvenanceStore({ databaseUrl }); await store.migrate();
+  const { databaseName, databaseUrl, store } = await createMigratedTestStore(t);
   const cli = fileURLToPath(new URL("../scripts/tabellio-local-store.mjs", import.meta.url));
   const migration = JSON.parse((await execFileAsync(process.execPath, [cli, "migrate", "--database-url", databaseUrl])).stdout);
   assert.equal(migration.version, "002_tabellio_lineages");
@@ -51,6 +56,34 @@ test("lineage persists atomically, isolates projects, and replays from original 
   assert.equal(evaluateLineage(await reconnected.getLineage(query), { now: "2026-09-12T12:00:01Z" }).status, "passed");
   await adminCommand("psql", ["--dbname", databaseName, "--command", "UPDATE tabellio_lineages SET envelope = jsonb_set(envelope, '{candidate,headCommit}', '\"cccccccccccccccccccccccccccccccccccccccc\"')"]);
   await assert.rejects(() => reconnected.getLineage(query), /integrity/);
+});
+
+test("lineage insert plans reflect their single-row input without excessive compilation cost", { skip: !postgresAvailable }, async (t) => {
+  const { databaseUrl, store } = await createMigratedTestStore(t);
+  const root = await mkdtemp(join(tmpdir(), "tabellio-lineage-plan-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const reportPath = join(root, "plan.json"); const probe = join(root, "probe-psql.mjs");
+  await writeFile(probe, `#!/usr/bin/env node
+import { readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+const sql = readFileSync(0, 'utf8');
+const args = [...process.argv.slice(2), '--tuples-only', '--no-align'];
+const run = input => execFileSync(${JSON.stringify(process.env.TABELLIO_PSQL_BIN ?? "psql")}, args, { input, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 });
+const baselineSql = sql.replace('ANALYZE incoming_lineage;', '').replaceAll('INSERT INTO ', 'EXPLAIN (FORMAT JSON) INSERT INTO ').replace(/COMMIT;\\s*$/, 'ROLLBACK;');
+const baseline = JSON.parse('[' + run(baselineSql).trim().replace(/\\]\\s*\\[/g, '],[') + ']');
+const before = baseline.at(-1)[0];
+const after = JSON.parse(run(sql.replace('INSERT INTO tabellio_evidence_links', 'EXPLAIN (ANALYZE, FORMAT JSON) INSERT INTO tabellio_evidence_links')))[0];
+writeFileSync(${JSON.stringify(reportPath)}, JSON.stringify({ before: { cost: before.Plan['Total Cost'], jitPlanned: Boolean(before.JIT) }, after: { cost: after.Plan['Total Cost'], executionMs: after['Execution Time'], jitPlanned: Boolean(after.JIT) } }), { mode: 0o600 });
+`);
+  await chmod(probe, 0o700);
+  const candidate = candidateIdentity({ projectKey: "PLAN", repositoryId: "sample/plan", baseCommit: "a".repeat(40), headCommit: "b".repeat(40), mergeBase: "a".repeat(40) });
+  const lineage = assembleLineage({ candidate, observations: sampleObservations(candidate) });
+  await new LocalProvenanceStore({ databaseUrl, psqlBinary: probe }).putLineage(lineage);
+  const plan = JSON.parse(await readFile(reportPath, "utf8"));
+  t.diagnostic(JSON.stringify({ lineageInsertPlan: plan }));
+  assert.ok(plan.before.cost > 100000, "The unmeasured single-row input reproduces the excessive estimated cost.");
+  assert.ok(plan.after.cost < 100000, "Actual input cardinality keeps this short insert below the default JIT threshold.");
+  assert.deepEqual(await store.getLineage({ digest: lineage.digest, projectKey: candidate.projectKey, repositoryId: candidate.repositoryId }), lineage);
 });
 
 test("local provenance enforces metadata boundaries without PostgreSQL", function metadataBoundary() {
@@ -389,7 +422,8 @@ test("rejected payload keys never appear in diagnostics", () => {
 
 
 test("malformed record JSON never leaks input through CLI diagnostics", { skip: !postgresAvailable }, async (t) => {
-  const databaseUrl = testDatabaseUrl(await createTestDatabase(t));
+  const databaseName = await createTestDatabase(t);
+  const databaseUrl = testDatabaseUrl(databaseName);
   const root = await mkdtemp(join(tmpdir(), "tabellio-json-error-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const file = join(root, "record.json");
@@ -404,11 +438,16 @@ test("malformed record JSON never leaks input through CLI diagnostics", { skip: 
   });
 });
 
-test("valid lineages above two MiB remain readable after persistence", { skip: !postgresAvailable }, async (t) => {
+async function createLineageFixture(t) {
   const name = await createTestDatabase(t);
   const store = new LocalProvenanceStore({ databaseUrl: testDatabaseUrl(name) });
   await store.migrate();
   const candidate = candidateIdentity({ projectKey: "SAMPLE", repositoryId: "sample/repository", baseCommit: "a".repeat(40), headCommit: "b".repeat(40), mergeBase: "a".repeat(40) });
+  return { name, store, candidate };
+}
+
+test("valid lineages above two MiB remain readable after persistence", { skip: !postgresAvailable }, async (t) => {
+  const { name, store, candidate } = await createLineageFixture(t);
   const item = sampleObservations(candidate).find(item => item.kind === "validation");
   const observations = Array.from({ length: 40 }, (_, index) => ({ ...item, sourceId: `build-${index}`, metadata: { note: "x".repeat(60000) } }));
   const lineage = assembleLineage({ candidate, observations });
@@ -421,6 +460,18 @@ test("valid lineages above two MiB remain readable after persistence", { skip: !
 
 test("sparse payload arrays are rejected before canonicalization", () => {
   for (const refs of [Array(1), [, "valid"], ["valid", ,]]) assert.throws(() => normalizeRecord({ ...syntheticRecord(), payload: { refs } }), /sparse arrays/);
+});
+
+test("a valid same-scope substituted lineage cannot satisfy another digest", { skip: !postgresAvailable }, async (t) => {
+  const { name, store, candidate } = await createLineageFixture(t);
+  const original = assembleLineage({ candidate, observations: sampleObservations(candidate) });
+  const changedCandidate = candidateIdentity({ ...candidate, headCommit: "c".repeat(40) });
+  const substituted = assembleLineage({ candidate: changedCandidate, observations: sampleObservations(changedCandidate) });
+  assert.notEqual(original.digest, substituted.digest);
+  await store.putLineage(original);
+  const envelopeHex = Buffer.from(JSON.stringify(substituted), "utf8").toString("hex");
+  await adminCommand("psql", ["--dbname", name, "--command", `UPDATE tabellio_lineages SET envelope = convert_from(decode('${envelopeHex}', 'hex'), 'UTF8')::jsonb WHERE digest = '${original.digest}'`]);
+  await assert.rejects(store.getLineage({ digest: original.digest, projectKey: candidate.projectKey, repositoryId: candidate.repositoryId }), /digest integrity mismatch/);
 });
 
 test("stored record corruption is rejected on read", { skip: !postgresAvailable }, async (t) => {

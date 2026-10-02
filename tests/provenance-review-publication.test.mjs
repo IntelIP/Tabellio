@@ -1,5 +1,9 @@
 import { GitJsonLedger } from "../scripts/lib/git-json-ledger.mjs";
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { createFeatureFixture } from "./helpers/git-fixture.mjs";
 import { runGit } from "../scripts/lib/git-process.mjs";
@@ -22,7 +26,7 @@ async function setup(t, change = () => {}) {
   const observations = sampleObservations(candidate);
   change(observations);
   const lineage = assembleLineage({ candidate, observations });
-  const intent = createProvenanceStatusIntent(lineage, { now });
+  const intent = createProvenanceStatusIntent(lineage, { now, reservationRemote: "control" });
   const calls = [];
   const publisher = { publish: async (request) => { calls.push(request); return { ...request, id: calls.length }; } };
   const controlVerifier = async ({ repo: path }) => {
@@ -33,6 +37,25 @@ async function setup(t, change = () => {}) {
     return "synthetic-private-control";
   };
   return { repo, lineage, intent, now, publisher, calls, approval: approval(intent), control: fixture.bare, controlVerifier };
+}
+
+async function clonePublicationRepo(input, suffix) {
+  const second = input.repo + suffix;
+  await runGit({ cwd: input.repo, args: ["clone", input.repo, second] });
+  await runGit({ cwd: second, args: ["branch", "main", "origin/main"] });
+  await runGit({ cwd: second, args: ["remote", "set-url", "origin", "https://github.com/example/tabellio.git"] });
+  await runGit({ cwd: second, args: ["remote", "add", "control", input.control] });
+  return second;
+}
+
+function interruptReceiptSync(input, message) {
+  const verifier = input.controlVerifier;
+  let reads = 0;
+  input.controlVerifier = async options => {
+    if (++reads === 3) throw new Error(message);
+    return verifier(options);
+  };
+  return verifier;
 }
 
 test("published GitHub statuses match the CLI intent and approval replay sends nothing", async (t) => {
@@ -101,6 +124,20 @@ test("mismatched provider response cannot upgrade blocked evidence", async (t) =
   assert.deepEqual(receipt.published, []);
 });
 
+test("duplicate provider status IDs stay blocked and replay sends nothing", async (t) => {
+  const input = await setup(t);
+  let calls = 0;
+  input.publisher = { publish: async request => {
+    calls += 1;
+    return { ...request, id: "123" };
+  } };
+  const receipt = await publishProvenanceStatuses(input);
+  assert.equal(receipt.status, "blocked");
+  assert.equal(receipt.published.length, 1);
+  assert.deepEqual(await publishProvenanceStatuses(input), receipt);
+  assert.equal(calls, 2);
+});
+
 test("candidate movement between statuses stops the second publication", async (t) => {
   const input = await setup(t);
   let count = 0;
@@ -130,11 +167,7 @@ test("shared control reservation prevents duplicate delivery across independent 
     process.env[key] = "2026-09-12T12:00:00Z";
     t.after(() => { if (before === undefined) delete process.env[key]; else process.env[key] = before; });
   }
-  const second = input.repo + "-second";
-  await runGit({ cwd: input.repo, args: ["clone", input.repo, second] });
-  await runGit({ cwd: second, args: ["branch", "main", "origin/main"] });
-  await runGit({ cwd: second, args: ["remote", "set-url", "origin", "https://github.com/example/tabellio.git"] });
-  await runGit({ cwd: second, args: ["remote", "add", "control", input.control] });
+  const second = await clonePublicationRepo(input, "-second");
   const verifier = input.controlVerifier;
   const callsByClone = new Map();
   let waiting = 0, release;
@@ -193,6 +226,8 @@ test("shared receipts validate complete approval and status bindings", async (t)
     value => { value.published[0].state = "error"; },
     value => { value.published[0].context = "unrelated"; },
     value => { value.published[0].id = "invalid"; },
+    value => { value.published[0].id = "01"; },
+    value => { value.published[0].id = "0"; },
     value => { value.published[1].id = value.published[0].id; },
     value => { value.attemptedAt = "2026-09-12T13:00:00Z"; },
     value => { value.extra = "untrusted"; },
@@ -233,4 +268,183 @@ test("changed control identity stops reservation before any GitHub write", async
   assert.equal(input.calls.length, 0);
   const refs = await runGit({ cwd: input.repo, args: ["ls-remote", "--refs", "control", "refs/tabellio/provenance-status-reservations/*"] });
   assert.equal(refs.stdout, "");
+});
+
+test("interrupted receipt synchronization keeps remote pending and prevents redelivery", async (t) => {
+  const input = await setup(t);
+  const verifier = interruptReceiptSync(input, "synthetic control outage after delivery");
+  const receipt = await publishProvenanceStatuses(input);
+  assert.equal(receipt.status, "blocked");
+  assert.equal(receipt.published.length, 2);
+  assert.match(receipt.reason, /synchronization is uncertain/);
+  input.controlVerifier = verifier;
+  const replay = await publishProvenanceStatuses(input);
+  assert.equal(replay.status, "blocked");
+  assert.match(replay.reason, /earlier attempt is unresolved/);
+  assert.deepEqual(replay.published, []);
+  assert.equal(input.calls.length, 2);
+});
+
+test("mixed numeric and string duplicate IDs block replay", async t => {
+ const input = await setup(t);
+ let count=0;
+ input.publisher={publish:async request=>({...request,id:++count===1?123:"123"})};
+ const result=await publishProvenanceStatuses(input);
+ assert.equal(result.status,"blocked");
+ assert.equal(result.published.length,1);
+ assert.deepEqual(await publishProvenanceStatuses(input),result);
+ assert.equal(count,2);
+});
+test("fresh clone cannot redeliver after interrupted receipt synchronization", async t => {
+ const input=await setup(t);
+ const verifier=interruptReceiptSync(input,"synthetic final receipt outage");
+ assert.equal((await publishProvenanceStatuses(input)).status,"blocked");
+ const second=await clonePublicationRepo(input,"-recovery");
+ const ref=`refs/tabellio/provenance-status-reservations/${digestObject({approvalId:input.approval.id})}`;
+ const ledger=await GitJsonLedger.open({repoPath:second,ref});
+ assert.equal((await ledger.read("receipt.json")).value,null);
+ const replay=await publishProvenanceStatuses({...input,repo:second,controlVerifier:verifier});
+ assert.equal(replay.status,"blocked");
+ assert.match(replay.reason,/earlier attempt is unresolved/);
+ assert.equal(input.calls.length,2);
+});
+
+test("ambiguous provider IDs block and remain replayable", { concurrency: 2 }, async t => {
+  await Promise.all(["0123", "0", 0, -1, Number.MAX_SAFE_INTEGER + 1, {}, 123n].map(id =>
+    t.test(String(id), async t => {
+      const input = await setup(t);
+      let calls = 0;
+      input.publisher = { publish: async request => { calls += 1; return { ...request, id }; } };
+      const receipt = await publishProvenanceStatuses(input);
+      assert.equal(receipt.status, "blocked");
+      assert.deepEqual(receipt.published, []);
+      assert.deepEqual(await publishProvenanceStatuses(input), receipt);
+      assert.equal(calls, 1);
+    })
+  ));
+});
+
+async function localSetup(t) {
+  const input = await setup(t);
+  await runGit({ cwd: input.repo, args: ["remote", "remove", "control"] });
+  input.intent = createProvenanceStatusIntent(input.lineage, { now, publicationStore: input.control });
+  input.approval = approval(input.intent);
+  input.controlVerifier = async () => { throw new Error("Local publication must never inspect private remote credentials."); };
+  return input;
+}
+
+test("local customer-owned authority publishes without a control remote and replay sends nothing", async t => {
+  const input = await localSetup(t);
+  const first = await publishProvenanceStatuses(input);
+  assert.equal(first.status, "published");
+  assert.deepEqual(await publishProvenanceStatuses(input), first);
+  assert.equal(input.calls.length, 2);
+});
+
+test("local publication without an explicit authority fails closed before delivery", async t => {
+  const input = await localSetup(t);
+  input.intent = createProvenanceStatusIntent(input.lineage, { now });
+  input.approval = approval(input.intent);
+  await assert.rejects(publishProvenanceStatuses(input), /Configure TABELLIO_PUBLICATION_STORE/);
+  assert.equal(input.calls.length, 0);
+});
+
+async function assertRejectedLocalAuthority(input, publicationStore, reason, overrides = {}) {
+  const intent = createProvenanceStatusIntent(input.lineage, { now, publicationStore });
+  await assert.rejects(publishProvenanceStatuses({ ...input, ...overrides, intent, approval: approval(intent) }), reason);
+  assert.equal(input.calls.length, 0);
+}
+
+test("public checkout and its git directory cannot serve as publication authority", async t => {
+  const input = await localSetup(t);
+  for (const publicationStore of [input.repo, `${input.repo}/.git`]) {
+    await assertRejectedLocalAuthority(input, publicationStore, /separate bare Git/);
+  }
+  assert.equal(input.calls.length, 0);
+});
+
+test("nested bare publication stores cannot write private receipts inside public code", async t => {
+  const input = await localSetup(t);
+  for (const publicationStore of [`${input.repo}/private-store.git`, `${input.repo}/.git/private-store.git`]) {
+    await runGit({ cwd: input.repo, args: ["init", "--bare", publicationStore] });
+    await assertRejectedLocalAuthority(input, publicationStore, /outside the worktree/);
+  }
+  assert.equal(input.calls.length, 0);
+});
+
+test("subdirectory caller cannot put publication authority inside the public top-level", async t => {
+  const input = await localSetup(t);
+  const repo = `${input.repo}/src`;
+  await mkdir(repo);
+  const publicationStore = `${input.repo}/private-authority.git`;
+  await runGit({ cwd: input.repo, args: ["init", "--bare", publicationStore] });
+  await assertRejectedLocalAuthority(input, publicationStore, /outside the worktree/, { repo });
+  assert.equal(input.calls.length, 0);
+});
+
+test("independent clones sharing one local authority cannot duplicate approved delivery", async t => {
+  const input = await localSetup(t);
+  const second = await clonePublicationRepo(input, "-local-second");
+  const outcomes = await Promise.allSettled([publishProvenanceStatuses(input), publishProvenanceStatuses({ ...input, repo: second })]);
+  assert.ok(outcomes.some(item => item.status === "fulfilled" && item.value.status === "published"));
+  assert.equal(input.calls.length, 2);
+  assert.equal((await publishProvenanceStatuses({ ...input, repo: second })).status, "published");
+  assert.equal(input.calls.length, 2);
+});
+
+test("local interrupted delivery leaves approval consumed for another clone", async t => {
+  const input = await localSetup(t);
+  let attempts = 0;
+  input.publisher = { publish: async () => { attempts += 1; throw new Error("uncertain transport"); } };
+  assert.equal((await publishProvenanceStatuses(input)).status, "blocked");
+  const second = await clonePublicationRepo(input, "-local-recovery");
+  assert.equal((await publishProvenanceStatuses({ ...input, repo: second })).status, "blocked");
+  assert.equal(attempts, 1);
+});
+
+test("crashed local publisher leaves pending receipt that another clone never retries", async t => {
+  const input = await localSetup(t);
+  const ref = `refs/tabellio/provenance-status-reservations/${digestObject({ repository: "example/tabellio", approvalId: input.approval.id })}`;
+  const ledger = await GitJsonLedger.open({ repoPath: input.control, ref });
+  await ledger.write("receipt.json", {
+    schemaVersion: "tabellio-provenance-status-receipt/v0.1", approvalId: input.approval.id,
+    reservationId: "12345678-1234-4234-8234-123456789abc", intentDigest: input.intent.integrity.digest,
+    candidateId: input.intent.candidate.id, attemptedAt: now, status: "pending", published: [],
+  }, { expectedVersion: null });
+  const result = await publishProvenanceStatuses(input);
+  assert.equal(result.status, "blocked");
+  assert.match(result.reason, /earlier attempt is unresolved/);
+  assert.equal(input.calls.length, 0);
+});
+
+test("approved local authority cannot be switched to a fresh store", async t => {
+  const input = await localSetup(t);
+  const modified = structuredClone(input.intent);
+  modified.reservationRemote = `local:${input.repo}`;
+  const { integrity: _integrity, ...unsigned } = modified;
+  modified.integrity.digest = digestObject(unsigned);
+  await assert.rejects(publishProvenanceStatuses({ ...input, intent: modified }));
+  assert.equal(input.calls.length, 0);
+});
+
+
+test("separate publishing processes use one atomic local reservation", async t => {
+  const input = await localSetup(t);
+  const second = await clonePublicationRepo(input, "-local-process");
+  const module = new URL("../scripts/lib/provenance-review-publication.mjs", import.meta.url).href;
+  const script = `import { publishProvenanceStatuses } from ${JSON.stringify(module)};
+    const input = JSON.parse(process.argv[1]);
+    let delivered = 0;
+    input.publisher = { publish: async request => ({ ...request, id: ++delivered }) };
+    try { const result = await publishProvenanceStatuses(input); console.log(JSON.stringify({ status: result.status, delivered })); }
+    catch { console.log(JSON.stringify({ status: "blocked", delivered })); }`;
+  const run = repo => promisify(execFile)(process.execPath, ["--input-type=module", "-e", script, JSON.stringify({
+    repo, lineage: input.lineage, intent: input.intent, approval: input.approval, now,
+  })], { cwd: fileURLToPath(new URL("..", import.meta.url)), timeout: 30000 });
+  const results = await Promise.all([run(input.repo), run(second)]);
+  const outcomes = results.map(result => JSON.parse(result.stdout));
+  assert.equal(outcomes.reduce((sum, result) => sum + result.delivered, 0), 2);
+  assert.ok(outcomes.some(result => result.status === "published"));
+  assert.equal((await publishProvenanceStatuses(input)).status, "published");
+  assert.equal(input.calls.length, 0);
 });

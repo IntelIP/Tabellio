@@ -16,11 +16,21 @@ fi
 
 . .buildkite/scripts/verify-git-toolchain.sh
 . .buildkite/scripts/security-tools.sh
+. .buildkite/scripts/entire-tools.sh
 
 postgres_bin="$(pg_config --bindir)"
 test -x "$postgres_bin/initdb"
 test -x "$postgres_bin/pg_ctl"
 export PATH="$postgres_bin:$PATH"
+
+bash .buildkite/scripts/checkpoint-evidence.sh
+
+repository_id="${TABELLIO_REPO_ID:-}"
+if [[ -z "$repository_id" ]]; then
+  repository_url="$(git remote get-url origin)"
+  repository_id="$(node -e 'const u=process.argv[1]; const m=u.match(/^(?:https:\/\/github\.com\/|git@github\.com:)([^/]+\/[^/]+?)(?:\.git)?$/); if(!m)process.exit(1); console.log(m[1]);' "$repository_url")"
+fi
+[[ "$repository_id" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "A valid customer repository ID is required." >&2; exit 1; }
 
 candidate="${BUILDKITE_COMMIT:-HEAD}"
 base_branch="${BUILDKITE_PULL_REQUEST_BASE_BRANCH:-${TABELLIO_BASE_BRANCH:-main}}"
@@ -30,6 +40,7 @@ checkpoint_args=()
 git fetch --no-tags origin "+refs/heads/${base_branch}:refs/remotes/origin/${base_branch}"
 test "$(git rev-parse HEAD^{commit})" = "$(git rev-parse "${candidate}^{commit}")"
 
+umask 077
 temporary_dir="$(mktemp -d)"
 trap 'rm -rf "$temporary_dir"' EXIT
 
@@ -47,7 +58,7 @@ if [[ "$default_branch_build" == "true" ]]; then
   fi
   if ! curl --fail --silent --show-error \
     "${github_headers[@]}" \
-    "https://api.github.com/repos/IntelIP/Tabellio/commits/${candidate}/pulls" \
+    "https://api.github.com/repos/${repository_id}/commits/${candidate}/pulls" \
     | node scripts/resolve-merged-checkpoint.mjs \
         --commit "$candidate" \
         --github-output "$checkpoint_output"; then
@@ -84,19 +95,19 @@ fi
 
 install -m 755 scripts/tabellio-validator.mjs "$temporary_dir/tabellio-validator"
 
-PATH="$temporary_dir:$PATH" node scripts/tabellio-validate.mjs gate \
+if ! PATH="$temporary_dir:$PATH" node scripts/tabellio-validate.mjs gate \
   --repo . \
-  --repo-id IntelIP/Tabellio \
+  --repo-id "$repository_id" \
   --runner-id "buildkite:${BUILDKITE_BUILD_ID:?Buildkite build ID is required}" \
   --base "$base_ref" \
   --commit HEAD \
   "${checkpoint_args[@]}" \
   --manifest tabellio.validation.json \
-  | tee tabellio-validation-result.json
+  > "$temporary_dir/tabellio-validation-private.json" 2> "$temporary_dir/validation-stderr.log"; then
+  node scripts/validation-public-summary.mjs "$temporary_dir/tabellio-validation-private.json" tabellio-validation-result.json
+  printf '%s\n' "Product validation failed; inspect the trusted worker result. Missing genuine checkpoint evidence must fail the gate." >&2
+  exit 1
+fi
 
-validation_ref="refs/tabellio/validations"
-validation_commit="$(git rev-parse "${validation_ref}^{commit}")"
-mkdir -p .artifacts/tabellio
-git bundle create .artifacts/tabellio/validation-ref.bundle "$validation_ref"
-printf '%s\n' "$validation_commit" > .artifacts/tabellio/validation-ref.sha
-git bundle verify .artifacts/tabellio/validation-ref.bundle
+node scripts/validation-public-summary.mjs "$temporary_dir/tabellio-validation-private.json" tabellio-validation-result.json
+# Native validation refs remain private on the trusted worker; never upload them as public CI artifacts.
