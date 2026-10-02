@@ -52,7 +52,7 @@ TABELLIO_REQUIRE_POSTGRES=1 TABELLIO_TEST_PG_SOCKET="$coverage_pg_socket" TABELL
     tests/provenance-security-scanners.test.mjs tests/provenance-review-result.test.mjs \
     tests/provenance-review-publication.test.mjs \
     tests/platform-config.test.mjs tests/preflight.test.mjs \
-    tests/release-workflow.test.mjs tests/release-cli.test.mjs tests/checkpoint-evidence.test.mjs
+    tests/release-workflow.test.mjs tests/release-cli.test.mjs tests/checkpoint-evidence.test.mjs tests/checkpoint-proof.test.mjs
 cleanup_coverage_postgres
 
 # Preserve the same real recovery demo coverage without rerunning that suite

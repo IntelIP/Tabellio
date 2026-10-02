@@ -37,7 +37,8 @@
     "tabellio-vercel-deployment": "scripts/tabellio-vercel-deployment.mjs",
     "tabellio-local-store": "scripts/tabellio-local-store.mjs",
     "tabellio-provenance": "scripts/tabellio-provenance.mjs",
-    "tabellio-provenance-demo": "scripts/demo-provenance.mjs"
+    "tabellio-provenance-demo": "scripts/demo-provenance.mjs",
+    "tabellio-checkpoint-proof": "scripts/tabellio-checkpoint-proof.mjs"
   },
   "bugs": {
     "url": "https://github.com/IntelIP/Tabellio/issues"
@@ -119,7 +120,8 @@
     "tabellio:provenance:demo": "node scripts/demo-provenance.mjs",
     "tabellio:provenance:security:check": "node scripts/check-provenance-security.mjs",
     "benchmark:provenance": "node scripts/benchmark-provenance.mjs",
-    "tabellio:checkpoint:export": "node scripts/export-checkpoint-metadata.mjs"
+    "tabellio:checkpoint:export": "node scripts/export-checkpoint-metadata.mjs",
+    "tabellio:checkpoint:proof": "node scripts/tabellio-checkpoint-proof.mjs"
   },
   "engines": {
     "node": ">=20"
