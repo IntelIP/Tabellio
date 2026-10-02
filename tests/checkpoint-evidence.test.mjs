@@ -117,11 +117,25 @@ test('private runner envelope binds candidate and digest, rejects leaks, and rem
     const loader = resolve('scripts/ci-checkpoint-evidence.mjs');
     const invoke = (command, value = envelope) => {
       const text = JSON.stringify(value); const middle = Math.floor(text.length / 2);
-      return run(target, process.execPath, [loader, command], { GITHUB_ACTIONS: 'true', GITHUB_WORKSPACE: target, RUNNER_TEMP: runner, GITHUB_REPOSITORY: 'Fixture/Transport', TABELLIO_CHECKPOINT_PROOF_1: text.slice(0, middle), TABELLIO_CHECKPOINT_PROOF_2: text.slice(middle) });
+      return run(target, process.execPath, [loader, command], { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_WORKSPACE: target, RUNNER_TEMP: runner, GITHUB_REPOSITORY: 'Fixture/Transport', TABELLIO_CHECKPOINT_PROOF_1: text.slice(0, middle), TABELLIO_CHECKPOINT_PROOF_2: text.slice(middle) });
     };
     for (const bad of [{ ...envelope, candidate: base }, { ...envelope, sha256: '0'.repeat(64) }, { ...envelope, repositoryId: 'wrong/private-secret-marker' }]) {
       const r = invoke('load', bad); assert.equal(r.status, 1); assert.ok(!r.stderr.includes('private-secret-marker'));
     }
+    // A main push advances origin/main to HEAD; the gate still validates HEAD^..HEAD.
+    git(target, 'update-ref', 'refs/remotes/origin/main', candidate);
+    const invokePush = value => {
+      const text = JSON.stringify(value); const middle = Math.floor(text.length / 2);
+      return run(target, process.execPath, [loader, 'load'], { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'push', GITHUB_WORKSPACE: target, RUNNER_TEMP: runner, GITHUB_REPOSITORY: 'Fixture/Transport', TABELLIO_CHECKPOINT_PROOF_1: text.slice(0, middle), TABELLIO_CHECKPOINT_PROOF_2: text.slice(middle) });
+    };
+    assert.equal(invokePush({ ...envelope, base: candidate }).status, 1, 'HEAD is not the prior push base');
+    assert.equal(invokePush({ ...envelope, repositoryId: 'github.com/Wrong/Repository' }).status, 1);
+    assert.equal(invokePush({ ...envelope, candidate: base }).status, 1);
+    assert.equal(invokePush(envelope).status, 0, 'prior-base proof loads after origin/main advances');
+    assert.equal(git(target, 'rev-parse', 'refs/heads/entire/checkpoints/v1'), nativeTip);
+    assert.equal(invoke('cleanup').status, 0);
+    git(target, 'update-ref', 'refs/remotes/origin/main', base);
+    assert.equal(invoke('load', { ...envelope, base: candidate }).status, 1, 'PR proof rejects the wrong base');
     const loaded = invoke('load'); assert.equal(loaded.status, 0, loaded.stderr);
     assert.equal(git(target, 'rev-parse', 'refs/heads/entire/checkpoints/v1'), nativeTip);
     for (const path of ['prompt.txt', 'full.jsonl']) assert.notEqual(run(target, 'git', ['cat-file', '-e', git(source, 'rev-parse', `${nativeTip}:${path}`)]).status, 0);
@@ -135,5 +149,30 @@ test('private runner envelope binds candidate and digest, rejects leaks, and rem
       git(target, 'update-ref', ref, base); assert.equal(invoke('load').status, 1);
       assert.equal(git(target, 'rev-parse', ref), base); git(target, 'update-ref', '-d', ref);
     }
+    git(target, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-m', 'Second PR candidate');
+    const secondCandidate = git(target, 'rev-parse', 'HEAD');
+    assert.equal(git(target, 'rev-parse', 'HEAD^'), candidate);
+    assert.equal(git(target, 'merge-base', 'origin/main', 'HEAD'), base);
+    assert.equal(invoke('load', { ...envelope, candidate: secondCandidate, base: candidate }).status, 1, 'multi-commit PR must reject HEAD^ in place of merge-base');
+    assert.equal(invoke('load', { ...envelope, candidate: secondCandidate }).status, 0, 'multi-commit PR retains its merge-base');
+    assert.equal(invoke('cleanup').status, 0);
+    assert.equal(git(target, 'rev-parse', 'HEAD'), secondCandidate);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+
+test('Buildkite repository extraction uses shared GitHub parser for HTTPS and SSH origins', async () => {
+  const source = await readFile(resolve('.buildkite/scripts/product-validation.sh'), 'utf8');
+  const extraction = source.match(/node --input-type=module -e '([^']+)' "\$repository_url"/);
+  assert.ok(extraction, 'Exercise the registered shell command, not a copy of its parser');
+  for (const remote of ['https://github.com/Fixture/Transport.git', 'git@github.com:Fixture/Transport.git', 'ssh://git@github.com/Fixture/Transport.git']) {
+    const result = run(process.cwd(), process.execPath, ['--input-type=module', '-e', extraction[1], remote]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), 'Fixture/Transport');
+  }
+  for (const remote of ['ssh://git@example.com/Fixture/Transport.git', 'https://github.com/Fixture/Transport/extra', 'ssh://git@github.com/../Transport.git', 'not-a-repository']) {
+    const result = run(process.cwd(), process.execPath, ['--input-type=module', '-e', extraction[1], remote]);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout.trim(), '');
+  }
 });

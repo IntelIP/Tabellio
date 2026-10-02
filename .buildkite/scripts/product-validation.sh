@@ -28,7 +28,7 @@ bash .buildkite/scripts/checkpoint-evidence.sh
 repository_id="${TABELLIO_REPO_ID:-}"
 if [[ -z "$repository_id" ]]; then
   repository_url="$(git remote get-url origin)"
-  repository_id="$(node -e 'const u=process.argv[1]; const m=u.match(/^(?:https:\/\/github\.com\/|git@github\.com:)([^/]+\/[^/]+?)(?:\.git)?$/); if(!m)process.exit(1); console.log(m[1]);' "$repository_url")"
+  repository_id="$(node --input-type=module -e 'import { parseGitHubRepositoryRemote } from "./scripts/lib/github-repository.mjs"; const repository = parseGitHubRepositoryRemote(process.argv[1]); if (!repository) process.exit(1); console.log(repository.fullName);' "$repository_url")"
 fi
 [[ "$repository_id" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "A valid customer repository ID is required." >&2; exit 1; }
 
