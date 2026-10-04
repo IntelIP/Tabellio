@@ -2,6 +2,13 @@
 
 Prepare and verify a bounded metadata-only handoff from genuine local Entire 0.7.7 checkpoints. This command never captures a session, uploads evidence, changes an environment, creates credentials, or approves a gate. It reuses the canonical exporter and audits the actual serialized pack against the selected native metadata object IDs. Keep the native ref and private backup locally.
 
+The export preserves every native commit and the original tree/blob identities
+along the selected metadata paths. It omits unrelated trees, unselected metadata,
+prompts, and transcripts, and compresses the existing objects for the two-part
+handoff. The serialized privacy audit and transport limits still apply. Oversized
+proofs fail at the `transport` stage; do not raise limits or share another scope
+without separate authorization.
+
 Use Node 22, Entire 0.7.7, Git, and an existing authenticated GitHub CLI with repository read access. Fetch current public source refs first; check out the exact published candidate. Choose a new output directory outside both the source checkout and Git directory, with an existing private parent directory.
 
 ```sh

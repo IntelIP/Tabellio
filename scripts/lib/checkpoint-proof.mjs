@@ -8,6 +8,26 @@ import { dirname, join, relative, resolve } from 'node:path';
 export const proofDigest = value => createHash('sha256').update(value).digest('hex');
 export const scopeDigest = scope => proofDigest(JSON.stringify(scope));
 
+export function createMetadataProofBundle(repo, nativeTip, paths) {
+  if (!/^[0-9a-f]{40}$/.test(nativeTip) || !Array.isArray(paths) || paths.length === 0
+    || paths.some(path => typeof path !== 'string' || !/^[0-9a-f]{2}\/[0-9a-f]{10}\/(?:(?:0|[1-9][0-9]*)\/)?metadata\.json$/.test(path))) throw new Error('Invalid native metadata scope.');
+  const git = (...args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', timeout: 30000, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  // Keep every original commit, but only the trees and blobs needed for selected metadata.
+  const objects = new Set(git('rev-list', '--objects', '--no-object-names', '--filter=tree:0', nativeTip).split('\n'));
+  objects.add(git('rev-parse', '--verify', '--end-of-options', `${nativeTip}^{tree}`));
+  const selectedPaths = new Set();
+  for (const path of paths) {
+    const parts = path.split('/');
+    for (let length = 1; length <= parts.length; length++) selectedPaths.add(parts.slice(0, length).join('/'));
+  }
+  for (const path of selectedPaths) objects.add(git('rev-parse', '--verify', '--end-of-options', `${nativeTip}:${path}`));
+  const pack = execFileSync('git', ['pack-objects', '--stdout', '--compression=9', '--window=250', '--depth=250', '--delta-base-offset', '--no-reuse-object', '--no-reuse-delta'], {
+    cwd: repo, input: `${[...objects].join('\n')}\n`, timeout: 60000, stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const header = Buffer.from(`# v3 git bundle\n@object-format=sha1\n@filter=tree:0\n${nativeTip} refs/heads/entire/checkpoints/v1\n\n`);
+  return Buffer.concat([header, pack]);
+}
+
 export function proofTransport(scope, bytes) {
   const envelope = { schemaVersion: 'tabellio-private-checkpoint-proof/v1', repositoryId: scope.repositoryId,
     candidate: scope.candidate, base: scope.base, nativeTip: scope.nativeTip,
