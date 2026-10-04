@@ -7,8 +7,8 @@ portable tags, complete inventories, squash merges, commit containment, and
 temporal provenance.
 
 Acceptance authority is INTB-261, the 20 P4 entries in
-`docs/intb-261-pr28-thread-ledger.json`, and
-`docs/intb-261-review-remediation-strategy.md`.
+`docs/historical/intb-261-pr28-thread-ledger.json`, and
+`docs/historical/intb-261-review-remediation-strategy.md`.
 
 ## Owned Surfaces
 

@@ -5,7 +5,7 @@
   "requireEntireCheckpoint": true,
   "acceptance": {
     "id": "INTB-261-P3",
-    "source": "INTB-261 and docs/intb-261-p3-execution-contract.md",
+    "source": "INTB-261 and docs/historical/intb-261-p3-execution-contract.md",
     "risk": "high",
     "outcomes": [
       "Buildkite inventory is complete, bounded, and repository-bound.",

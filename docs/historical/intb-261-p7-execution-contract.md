@@ -6,8 +6,8 @@ Join Plane, Buildkite, GitHub Release, and deployment evidence without claiming
 delivery success unless each decision is bound to matching source evidence.
 
 Acceptance authority is INTB-261, the 44 P7 entries in
-`docs/intb-261-pr28-thread-ledger.json`, and
-`docs/intb-261-review-remediation-strategy.md`.
+`docs/historical/intb-261-pr28-thread-ledger.json`, and
+`docs/historical/intb-261-review-remediation-strategy.md`.
 
 ## Owned Surfaces
 

@@ -1,11 +1,11 @@
 {
   "name": "@intelip/tabellio",
   "version": "0.7.0",
-  "description": "Tabellio: GitHub-native context and evidence for agentic development.",
+  "description": "Tabellio helps teams review AI-assisted code with evidence tied to the exact code version.",
   "type": "module",
   "license": "Apache-2.0",
   "author": "IntelIP",
-  "homepage": "https://github.com/IntelIP/Tabellio#readme",
+  "homepage": "https://github.com/IntelIP/Tabellio/tree/main/docs",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/IntelIP/Tabellio.git"
@@ -66,7 +66,8 @@
     "docs",
     "reports",
     "migrations",
-    "tabellio.data-boundary.json"
+    "tabellio.data-boundary.json",
+    "AGENTS.md"
   ],
   "scripts": {
     "quality:dead-code": "npx --yes fallow@2.89.0 dead-code",
@@ -114,14 +115,15 @@
     "tabellio:delivery:evidence": "node scripts/tabellio-delivery-evidence.mjs",
     "tabellio:delivery:report": "node scripts/tabellio-delivery-report.mjs",
     "tabellio:external-actions:check": "node scripts/check-tabellio-external-actions.mjs --evidence tabellio-pr-evidence.json",
-    "check": "npm test && npm run tabellio:platform:check && npm run tabellio:run:example:check && npm run tabellio:stack:example:check && npm run tabellio:stack:operation:example:check && npm run tabellio:review:example:check && npm run tabellio:validate:example:check && npm run tabellio:design-memory:example:check && npm run tabellio:ledger:example:check && npm run tabellio:release:example:check && npm run tabellio:context:example:check && npm run tabellio:analytics:product:check && npm run tabellio:evidence:example:check && npm run tabellio:deployment:check && node scripts/check-tabellio-external-actions.mjs --evidence examples/tabellio-evidence/minimal-evidence.json",
+    "check": "npm run docs:check && npm test && npm run tabellio:platform:check && npm run tabellio:run:example:check && npm run tabellio:stack:example:check && npm run tabellio:stack:operation:example:check && npm run tabellio:review:example:check && npm run tabellio:validate:example:check && npm run tabellio:design-memory:example:check && npm run tabellio:ledger:example:check && npm run tabellio:release:example:check && npm run tabellio:context:example:check && npm run tabellio:analytics:product:check && npm run tabellio:evidence:example:check && npm run tabellio:deployment:check && node scripts/check-tabellio-external-actions.mjs --evidence examples/tabellio-evidence/minimal-evidence.json",
     "tabellio:local-store": "node scripts/tabellio-local-store.mjs",
     "tabellio:provenance": "node scripts/tabellio-provenance.mjs",
     "tabellio:provenance:demo": "node scripts/demo-provenance.mjs",
     "tabellio:provenance:security:check": "node scripts/check-provenance-security.mjs",
     "benchmark:provenance": "node scripts/benchmark-provenance.mjs",
     "tabellio:checkpoint:export": "node scripts/export-checkpoint-metadata.mjs",
-    "tabellio:checkpoint:proof": "node scripts/tabellio-checkpoint-proof.mjs"
+    "tabellio:checkpoint:proof": "node scripts/tabellio-checkpoint-proof.mjs",
+    "docs:check": "node scripts/check-docs.mjs"
   },
   "engines": {
     "node": ">=20"

@@ -1,56 +1,57 @@
-# Security Policy
+# Security policy
 
-## Supported Versions
+## Supported scope
 
-Security reports should target the latest `main` branch until versioned maintenance branches exist.
+Report issues affecting the published **0.7.0** package or current `main`.
+No older-version maintenance branches are promised. Include the exact package
+version and source commit when available.
 
-## Reporting
+## Private vulnerability reporting
 
-Report security issues privately to the project maintainer before public disclosure.
+Use [GitHub's private report form](https://github.com/IntelIP/Tabellio/security/advisories/new).
+Do not file vulnerability details in a public issue. The private form is the
+project's reporting route; ordinary bugs and questions use
+[GitHub Issues](https://github.com/IntelIP/Tabellio/issues).
 
-Include:
+Include the affected version/file, minimal reproduction, expected and actual
+behavior, likely impact, and safe evidence references. Explain whether the issue
+allows unapproved actions, disclosure, evidence tampering, or misleading review status.
+Never include live credentials, tokens, private keys, raw session transcripts,
+provider bodies, or account data. Coordinate disclosure with the maintainer;
+no response-time or bounty promise is implied.
 
-- affected file or workflow
-- reproduction steps
-- expected impact
-- whether the issue could allow unapproved external actions, secret disclosure, evidence tampering, or misleading PR status
+## Current security boundaries
 
-Do not include live secrets, credentials, private keys, tokens, or account data in reports.
+Generated code, imported observations, and agent claims need independent checks.
+Evidence names an exact candidate; missing, stale, conflicting, or failed proof
+remains blocking. See [product validation](docs/product-validation.md).
 
-## Security Model
-
-Tabellio assumes generated code and agent claims are untrusted until deterministic checks validate the evidence packet.
-
-Default posture:
-
-| Area | Policy |
+| Area | Current boundary |
 | --- | --- |
-| Evidence | Machine-readable and reviewable |
-| External actions | Default-deny |
-| Secret values | Must not be read or logged |
-| Provider access | Credentialed reads require explicit approval |
-| Dangerous operations | Deploy, migration, infra, DNS, billing, live-money, and destructive actions require explicit approval |
-| CI | Evidence checks run before merge review decisions |
+| External actions | Default-deny; approval must cover the attempted action. |
+| Private state | Local customer-owned checkpoint, validation, and review refs by default. |
+| Public GitHub | Code and PRs; no private sessions or checkpoint bundles in public artifacts. |
+| Provenance packets | Candidate-scoped safe facts with a bounded envelope. |
+| Security receipts | Independent lineage/policy binding; failed or unavailable checks block review. |
+| Status publication | Short-lived intent-bound approval and a shared trusted-worker authority. |
 
-## Out Of Scope
+The pinned Gitleaks and ast-grep checks inspect immutable Git blobs without
+executing candidate code. Rules cover secrets, unverified JWT use, unsigned JWT
+configuration, disabled TLS verification, dynamic `eval`, and declared dependency
+policy. Candidate ignore files cannot grant a pass. Remaining declared dependencies
+need vulnerability evidence. Read [scanner operations](docs/provenance.md) for limits.
 
-v0.1.0 does not claim:
+Tabellio does not claim complete vulnerability detection, SLSA certification,
+in-toto verification, cryptographic evidence signing, complete supply-chain
+protection, or autonomous production safety. Synthetic security observations in
+the demo do not prove scanner effectiveness or live-provider security.
 
-- SLSA compliance
-- in-toto verification
-- cryptographic evidence signing
-- complete supply-chain protection
-- autonomous production safety
+## Maintainer checks
 
-Current claim: SLSA- and in-toto-inspired evidence for AI-assisted pull requests.
+Run existing private-name/secret checks, required repository checks, provenance
+security checks, and exact-head validation. Verify that attempted protected actions
+without approval fail. Confirm review clearance for the same head.
 
-## Maintainer Checklist
-
-Before release:
-
-- run private-name scan
-- run secret scan
-- validate example evidence
-- validate generated evidence
-- verify unapproved attempted external actions fail
-- verify Scorecard workflow passes
+Keep [data-retention boundaries](tabellio.data-boundary.json) and
+[operations hardening](docs/operations-hardening.md) intact. Sharing checkpoint
+proof or changing protected environments requires its own explicit authorization.

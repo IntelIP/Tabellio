@@ -8,8 +8,8 @@ evidence. Restore exact squash-merge checkpoint validation on Buildkite's
 default-branch build.
 
 Acceptance authority is INTB-261, the 15 P3 entries in
-`docs/intb-261-pr28-thread-ledger.json`, and
-`docs/intb-261-review-remediation-strategy.md`.
+`docs/historical/intb-261-pr28-thread-ledger.json`, and
+`docs/historical/intb-261-review-remediation-strategy.md`.
 
 ## Owned Surfaces
 

@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a reproducible problem with current Tabellio behavior.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: "For vulnerabilities, use https://github.com/IntelIP/Tabellio/security/advisories/new. Do not include credentials, private sessions, provider bodies, or account data."
+  - type: input
+    id: version
+    attributes:
+      label: Package version and source commit
+      description: Include tabellio-version output fields, not private machine paths.
+      placeholder: "0.7.0; source commit if known"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system and relevant tool versions
+      description: Include Node.js, Git, PostgreSQL, or Entire versions used by this workflow.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Give minimal commands and safe sample inputs. Label synthetic fixtures.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the safe error or receipt status and what remained unfinished.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Safe evidence references
+      description: Link sanitized receipts, existing validation/review artifacts, and the affected code version. Never attach private checkpoint bundles.
