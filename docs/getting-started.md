@@ -99,9 +99,9 @@ A fresh hosted validator also needs [private checkpoint proof](checkpoint-proof-
 ## Evidence and review
 
 Use the [evidence schema](evidence-schema.md) to retain safe command results,
-changed files, approval decisions, and artifact references. Tabellio's native
-[GitHub PR template](../.github/pull_request_template.md) matches the
-[packaged template](../templates/pull_request_template.md) for adopting repositories.
+changed files, approval decisions, and artifact references. Use the
+[packaged PR template](../templates/pull_request_template.md) for adopting repositories.
+GitHub loads an identical native copy for this repository's pull requests.
 Read [Contributing](../CONTRIBUTING.md) for the reusable work-plan and handoff format.
 
 Keep deployment, migrations, infrastructure, DNS, hosting, billing, live-money,

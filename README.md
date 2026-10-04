@@ -17,7 +17,7 @@ Start in a new directory. The demo needs:
 - macOS or Linux, running as a regular user.
 - Node.js 20 or later and npm. Repository CI uses Node.js 22.23.1.
 - Git 2.38 or later.
-- PostgreSQL client and server binaries on `PATH`: `psql`, `initdb`, and `pg_ctl`.
+- PostgreSQL client and server binaries on `PATH`: `psql`, `createdb`, `initdb`, and `pg_ctl`.
   PostgreSQL 14.15 was used for the documented macOS run.
 
 The demo creates its own temporary Git repository and private PostgreSQL cluster.

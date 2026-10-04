@@ -27,6 +27,12 @@ Preserve any existing edits and use an isolated task branch when needed.
 
 Use the same pinned scanner setup and shared checks as CI:
 
+The scanner installer supports Apple silicon macOS (`Darwin-arm64`) and
+x86-64 Linux (`Linux-x86_64`). On Intel macOS or another platform, run this
+baseline in an x86-64 Linux development environment, such as a virtual machine.
+The required GitHub Actions checks also run on x86-64 Linux. Use the pinned
+versions in `.buildkite/scripts/security-tools.sh`; keep the security checks enabled.
+
 ```bash
 . .buildkite/scripts/security-tools.sh
 npm run docs:check
@@ -89,8 +95,8 @@ Remove only task-owned temporary files; preserve unrelated edits and private ref
 
 ## Pull requests and review
 
-Use the [native PR template](.github/pull_request_template.md); its
-[packaged counterpart](templates/pull_request_template.md) serves adopting repositories.
+Use the [packaged PR template](templates/pull_request_template.md).
+GitHub loads the identical `.github/pull_request_template.md` copy for this repository.
 State the expected behavior, changed files, commands, exact code version, evidence,
 external-action authority, and remaining blockers. An agent's claim does not grant readiness.
 

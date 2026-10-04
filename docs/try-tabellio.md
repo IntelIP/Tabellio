@@ -7,7 +7,7 @@ provider account or credentials.
 ## Requirements
 
 Use macOS or Linux as a regular user, Node.js 20 or later, npm, and Git 2.38 or later.
-Put PostgreSQL client **and server** binaries on `PATH`: `psql`, `initdb`, and
+Put PostgreSQL client **and server** binaries on `PATH`: `psql`, `createdb`, `initdb`, and
 `pg_ctl`. The documented macOS run used PostgreSQL 14.15 and Node.js 26.3.1;
 repository CI uses Node.js 22.23.1. A client-only installation is insufficient.
 
