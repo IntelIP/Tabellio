@@ -5,10 +5,10 @@
 Build the smallest analytics core that can accept portable evidence, preserve
 unknown states, bind claims to exact Git and provider identities, and emit a
 deterministic dataset. This PR owns the 25 frozen PR #28 findings assigned to
-`P1b` in `docs/intb-261-pr28-thread-ledger.json`.
+`P1b` in `docs/historical/intb-261-pr28-thread-ledger.json`.
 
 Acceptance authority is INTB-261, the frozen thread ledger, and
-`docs/intb-261-review-remediation-strategy.md`.
+`docs/historical/intb-261-review-remediation-strategy.md`.
 
 ## Owned Surfaces
 

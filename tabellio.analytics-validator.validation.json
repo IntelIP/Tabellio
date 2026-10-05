@@ -5,7 +5,7 @@
   "requireEntireCheckpoint": true,
   "acceptance": {
     "id": "INTB-261-P2",
-    "source": "INTB-261 and docs/intb-261-p2-execution-contract.md",
+    "source": "INTB-261 and docs/historical/intb-261-p2-execution-contract.md",
     "risk": "high",
     "outcomes": [
       "Analytics validation emits durable passed, failed, or blocked evidence.",

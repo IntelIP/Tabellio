@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private vulnerability report
+    url: https://github.com/IntelIP/Tabellio/security/advisories/new
+    about: Report security issues privately. Do not post vulnerability details in public issues.

@@ -255,24 +255,25 @@ test("file-byte integrity requires a SHA-256 digest", async (t) => {
 });
 
 test("core runtime and adoption docs do not require GitHub Actions", async () => {
-  const [readme, gettingStarted, writer, packageMetadata] = await Promise.all([
+  const [readme, gettingStarted, writer, packageMetadata, operators] = await Promise.all([
     readFile(`${projectRoot}/README.md`, "utf8"),
     readFile(`${projectRoot}/docs/getting-started.md`, "utf8"),
     readFile(`${projectRoot}/scripts/write-tabellio-evidence-envelope.mjs`, "utf8"),
     readFile(`${projectRoot}/package.json`, "utf8"),
+    readFile(`${projectRoot}/docs/operate-and-release.md`, "utf8"),
   ]);
   for (const content of [readme, gettingStarted, writer, packageMetadata]) {
     assert.doesNotMatch(content, /GITHUB_|GitHub Actions|github-actions/);
   }
   assert.equal(
-    readme.match(/--repo-id github\.com\/owner\/repository/g)?.length,
-    2,
-    "validation and review examples must use the GitHub-qualified repository identity",
+    operators.match(/--repo-id github\.com\/example\/repository/g)?.length,
+    1,
+    "operator review examples must use the GitHub-qualified repository identity",
   );
   assert.equal(
     gettingStarted.match(/--repo-id github\.com\/example\/repository/g)?.length,
     2,
-    "getting-started validation and review examples must use one GitHub-qualified repository identity",
+    "getting-started validation examples must use one GitHub-qualified repository identity",
   );
 });
 

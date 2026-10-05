@@ -5,7 +5,7 @@
   "requireEntireCheckpoint": true,
   "acceptance": {
     "id": "INTB-261-P4",
-    "source": "INTB-261 and docs/intb-261-p4-execution-contract.md",
+    "source": "INTB-261 and docs/historical/intb-261-p4-execution-contract.md",
     "risk": "high",
     "outcomes": [
       "GitHub release inventory is complete, bounded, and temporally coherent.",

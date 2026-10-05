@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { access, chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { assertPrivateProofOutput, assertProofTarget, auditProofPack, proofDigest, proofTransport, readPreparedProof, resolveProofRepository, resolveProofScope, scopeDigest, verifyPreparedProof } from '../scripts/lib/checkpoint-proof.mjs';
+import { assertPrivateProofOutput, assertProofTarget, auditProofPack, createMetadataProofBundle, proofDigest, proofTransport, readPreparedProof, resolveProofRepository, resolveProofScope, scopeDigest, verifyPreparedProof } from '../scripts/lib/checkpoint-proof.mjs';
 
 const bytes = Buffer.from('synthetic transport fixture, never provenance');
 const scope = { repositoryId: 'github.com/fixture/test', candidate: 'a'.repeat(40), base: 'b'.repeat(40), nativeTip: 'c'.repeat(40),
@@ -60,12 +60,28 @@ test('serialized native pack preserves IDs and rejects extra blobs, wrong tips a
     await writeFile(join(root, prefix, 'metadata.json'), JSON.stringify(metadata));
     await writeFile(join(root, prefix, '0/metadata.json'), JSON.stringify({ checkpoint_id: 'abcdef012345', session_id: 'synthetic', branch: 'fixture', save_step_count: 1, turn_id: 'fixture-turn', tool_use_id: 'fixture-tool', transcript_identifier_at_start: 'fixture-message', is_task: false, checkpoint_transcript_start: 0, transcript_lines_at_start: 0, session_metrics: { turn_count: 2 }, initial_attribution: { calculated_at: '2026-01-01T00:00:00Z', agent_lines: 3 }, combined_attribution: { agent_lines: 3 }, prompt_attributions: [{ checkpoint_number: 0, agent_lines_added: 3, user_added_per_file: { 'fixture.mjs': 2, calculated_at: 1 } }] }));
     await writeFile(join(root, prefix, '0/full.jsonl'), 'private-transcript-marker');
-    git('add', '.'); git('commit', '-qm', 'Synthetic transport fixture'); const tip = git('rev-parse', 'HEAD');
+    git('add', '.'); git('commit', '-qm', 'Synthetic transport fixture');
+    await mkdir(join(root, 'de/adcafe1234'), { recursive: true });
+    await writeFile(join(root, 'de/adcafe1234/metadata.json'), '{"summary":"private-unselected-fixture-marker"}');
+    git('add', 'de'); git('commit', '-qm', 'Unselected synthetic checkpoint'); const tip = git('rev-parse', 'HEAD');
     const patterns = `/${prefix}/metadata.json\n/${prefix}/0/metadata.json\n`;
     const filter = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: root, input: patterns, encoding: 'utf8' }).trim();
     const bundle = join(root, 'filtered.bundle'); git('bundle', 'create', bundle, `--filter=sparse:oid=${filter}`, 'refs/heads/entire/checkpoints/v1');
     const filtered = await readFile(bundle);
     assert.deepEqual(await auditProofPack(root, filtered, tip, ['abcdef012345']), { metadataBlobs: 2, transcriptsIncluded: false, promptsIncluded: false });
+    const bounded = createMetadataProofBundle(root, tip, [`${prefix}/metadata.json`, `${prefix}/0/metadata.json`]);
+    assert.deepEqual(await auditProofPack(root, bounded, tip, ['abcdef012345']), { metadataBlobs: 2, transcriptsIncluded: false, promptsIncluded: false });
+    const boundedPath = join(root, 'bounded.bundle'); await writeFile(boundedPath, bounded);
+    const consumer = join(root, 'consumer.git'); git('init', '-q', '--bare', consumer);
+    const imported = (...args) => execFileSync('git', args, { cwd: consumer, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    imported('bundle', 'verify', boundedPath); imported('bundle', 'unbundle', boundedPath);
+    imported('update-ref', 'refs/heads/entire/checkpoints/v1', tip);
+    assert.equal(imported('rev-list', tip), git('rev-list', tip));
+    assert.equal(imported('show', `${tip}:${prefix}/0/metadata.json`), git('show', `${tip}:${prefix}/0/metadata.json`));
+    for (const path of [`${prefix}/0/full.jsonl`, 'de/adcafe1234/metadata.json']) assert.throws(() => imported('cat-file', '-e', git('rev-parse', `${tip}:${path}`)));
+    assert.throws(() => createMetadataProofBundle(root, tip, [`${prefix}/0/full.jsonl`]));
+    assert.throws(() => createMetadataProofBundle(root, 'invalid', [`${prefix}/metadata.json`]));
+    assert.throws(() => createMetadataProofBundle(root, tip, []));
     await assert.rejects(auditProofPack(root, filtered, 'a'.repeat(40), ['abcdef012345']));
     await assert.rejects(auditProofPack(root, Buffer.from('not a pack'), tip, ['abcdef012345']));
     await assert.rejects(auditProofPack(root, filtered, tip, ['invalid']));

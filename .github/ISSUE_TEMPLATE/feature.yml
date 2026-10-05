@@ -1,0 +1,43 @@
+name: Feature request
+description: Propose a bounded improvement for a user outcome.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: "Keep evidence safe. Never include credentials, private transcripts, provider bodies, or account data."
+  - type: input
+    id: version
+    attributes:
+      label: Current package version and source commit
+      placeholder: "0.7.0; source commit if known"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Who needs this and what problem they face
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Current workflow or reproduction
+      description: Show the current steps or a clearly labeled hypothetical example.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior and observable result
+      description: Describe completion and relevant failure cases without assumed performance gains.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Existing tools or alternatives considered
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Safe evidence references and constraints
+      description: Link sanitized examples or existing records; identify access and approval dependencies.

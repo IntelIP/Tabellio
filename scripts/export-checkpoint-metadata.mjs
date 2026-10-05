@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import { chmod, open, readFile, rm } from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
+import { chmod, open, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { parseOptionPairs } from './lib/cli-options.mjs';
 import { runGit } from './lib/git-process.mjs';
 import { captureValidationCheckpoints } from './lib/validation-checkpoints.mjs';
+import { auditProofPack, createMetadataProofBundle } from './lib/checkpoint-proof.mjs';
 
 let ownedOutput;
 try {
@@ -26,26 +26,14 @@ try {
     const prefix = `${checkpoint.id.slice(0, 2)}/${checkpoint.id.slice(2)}`;
     return [`${prefix}/metadata.json`, ...checkpoint.sessions.map(session => `${prefix}/${session.index}/metadata.json`)];
   });
-  // A native Git filter preserves commit/tree identities; no checkpoint is reconstructed.
-  const pattern = `${paths.map(path => `/${path}`).join('\n')}\n`;
-  const patternOid = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: repo, input: pattern, encoding: 'utf8', timeout: 30000 }).trim();
-  const filter = `sparse:oid=${patternOid}`;
-  const objects = (await git('rev-list', '--objects', `--filter=${filter}`, nativeTip)).split('\n');
-  let metadataBlobs = 0;
-  for (const object of objects) {
-    const [oid, ...name] = object.split(' ');
-    if (await git('cat-file', '-t', oid) === 'blob') {
-      if (!paths.includes(name.join(' '))) throw new Error('Filtered export includes an unexpected blob.');
-      metadataBlobs += 1;
-    }
-  }
+  const bytes = createMetadataProofBundle(repo, nativeTip, paths);
+  const { metadataBlobs } = await auditProofPack(repo, bytes, nativeTip, ids);
   const out = resolve(options.out);
   const file = await open(out, 'wx', 0o600); await file.close(); ownedOutput = out;
-  await git('bundle', 'create', out, `--filter=${filter}`, nativeRef);
+  await writeFile(out, bytes);
   await chmod(out, 0o600);
   if (await git('rev-parse', nativeRef) !== nativeTip) throw new Error('Native checkpoint history changed during export.');
   await git('bundle', 'verify', out);
-  const bytes = await readFile(out);
   console.log(JSON.stringify({ ok: true, nativeRef, nativeTip, headCommit, mergeBase, checkpointIds: ids.sort(), metadataBlobs, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), transcriptsIncluded: false, promptsIncluded: false }));
   ownedOutput = null;
 } catch {

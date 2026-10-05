@@ -63,7 +63,7 @@ c8 --clean=false --exclude '**/node_modules/**' --reporter=json --reports-dir co
 # Include the policy benchmark and negative setup diagnostics without discarding
 # the integration demo coverage collected above.
 c8 --clean=false --exclude '**/node_modules/**' --reporter=json --reports-dir coverage \
-  node --test --test-concurrency=1 tests/provenance-benchmark.test.mjs tests/demo-provenance.test.mjs tests/validation-checkpoints.test.mjs
+  node --test --test-concurrency=1 tests/provenance-benchmark.test.mjs tests/demo-provenance.test.mjs tests/validation-checkpoints.test.mjs tests/docs-check.test.mjs
 
 # Fallow 2.89 consumes function/statement coverage but rejects c8's unknown
 # branch-column sentinel (-1). Preserve the original report; omit only branch

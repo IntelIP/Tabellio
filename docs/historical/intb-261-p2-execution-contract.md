@@ -7,8 +7,8 @@ Build a standalone analytics validator that emits durable, evidence-safe
 and provider-snapshot contracts.
 
 Acceptance authority is INTB-261, the 19 P2 entries in
-`docs/intb-261-pr28-thread-ledger.json`, and
-`docs/intb-261-review-remediation-strategy.md`.
+`docs/historical/intb-261-pr28-thread-ledger.json`, and
+`docs/historical/intb-261-review-remediation-strategy.md`.
 
 ## Owned Surfaces
 

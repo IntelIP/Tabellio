@@ -41,6 +41,7 @@ try {
     const scope = { schemaVersion: 'tabellio-checkpoint-handoff-scope/v1', ...range, nativeTip: exported.nativeTip,
       checkpointIds: exported.checkpointIds, bundleSha256: proofDigest(bytes), bundleBytes: bytes.length,
       ...audit, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() };
+    stage = 'transport';
     const transport = proofTransport(scope, bytes);
     for (const [name, value] of Object.entries({ 'scope.json': JSON.stringify(scope, null, 2), 'envelope.json': transport.text,
       'part-1.txt': transport.parts[0], 'part-2.txt': transport.parts[1] })) {

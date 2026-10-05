@@ -16,10 +16,10 @@ Snapshot: GitHub PR #28 review threads read 2026-07-27 from frozen head
 `33217d6d91470ce77bdbd96f749ed7127be50ab4`.
 
 - 160 unresolved threads: 47 P1, 112 P2, 1 P3.
-- `docs/intb-261-pr28-thread-ledger.json` records every frozen unresolved
+- `docs/historical/intb-261-pr28-thread-ledger.json` records every frozen unresolved
   thread ID, path, line, invariant, and successor destination. It is the
   durable reconciliation input; no successor may silently omit a source thread.
-- `docs/intb-261-successor-finding-ledger.json` is separate and starts empty.
+- `docs/historical/intb-261-successor-finding-ledger.json` is separate and starts empty.
   It records and routes every finding discovered after this frozen PR #28
   snapshot without changing the frozen provenance or 160-thread count.
 - Findings repeat across a small set of contract failures. A successor fixes

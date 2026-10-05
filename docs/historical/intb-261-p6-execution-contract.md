@@ -6,8 +6,8 @@ Build portable, repository-bound deployment receipts and read-only Cloud Run
 and Vercel collectors that parse their documented options and fail closed.
 
 Acceptance authority is INTB-261, the 10 P6 entries in
-`docs/intb-261-pr28-thread-ledger.json`, and
-`docs/intb-261-review-remediation-strategy.md`.
+`docs/historical/intb-261-pr28-thread-ledger.json`, and
+`docs/historical/intb-261-review-remediation-strategy.md`.
 
 ## Owned Surfaces
 
