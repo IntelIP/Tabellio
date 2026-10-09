@@ -1,8 +1,11 @@
-# Try Tabellio
+# Try WritSet
 
-Run the published package in a new directory to see how a code review can retain
-its source evidence and reject stale or missing proof. This sample needs no
-provider account or credentials.
+Run the published package in a new directory to see how source context is recorded,
+rebuilt, and checked for stale or missing evidence. This sample needs no provider
+account or credentials.
+
+WritSet was previously Tabellio. Version 0.7.0 remains published as
+`@intelip/tabellio`; use the existing commands below during the naming transition.
 
 ## Requirements
 

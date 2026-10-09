@@ -1,7 +1,7 @@
 # Connect a repository
 
-Connect one trusted repository so reviewers can identify the exact code version,
-its checks, checkpoint evidence, and any unresolved work. Try the
+Connect one trusted repository to track the task, source version, checkpoints,
+results, and unresolved work behind an agent session. Try the
 [credential-free demo](try-tabellio.md) first if you are evaluating the package.
 
 ## Integration requirements
@@ -24,8 +24,8 @@ npx tabellio-version --expect-version 0.7.0
 ```
 
 Use installed CLIs with `npx`. Commands beginning `node scripts/` or `npm run`
-in operator guides refer to a Tabellio source checkout. Source contributors use
-[CONTRIBUTING.md](../CONTRIBUTING.md); do not copy Tabellio's development scripts
+in operator guides refer to a WritSet source checkout. Source contributors use
+[CONTRIBUTING.md](../CONTRIBUTING.md); do not copy WritSet's development scripts
 into an unrelated application.
 
 GitHub is the canonical code store through `origin`. Private transcripts,
@@ -54,7 +54,7 @@ operator-approved repair step.
 Use the [platform boundary](github-code-storage-boundary.md) and
 [validation contract](validation-runner.md) to add `tabellio.platform.json` and
 `tabellio.validation.json` for your repository. Commit only the intended commands,
-acceptance criteria, and data boundaries. Tabellio ships
+acceptance criteria, and data boundaries. WritSet ships
 [examples](../examples/); copying a fixture does not establish passing evidence.
 
 Run the committed manifest against one exact candidate:

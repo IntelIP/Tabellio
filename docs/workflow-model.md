@@ -1,6 +1,6 @@
-# Tabellio Workflow Model
+# WritSet Workflow Model
 
-Tabellio turns an agentic coding run into a GitHub-bound context packet and, when wanted, a reviewable pull request packet.
+WritSet turns an agentic coding run into a GitHub-bound context packet and, when wanted, a reviewable pull request packet.
 
 ## Core Objects
 
@@ -25,7 +25,7 @@ Tabellio turns an agentic coding run into a GitHub-bound context packet and, whe
 | --- | --- | --- |
 | Git substrate | Standard Git CLI and bare repositories | Stores repositories, branches, commits, and patch state |
 | Session ledger | Entire; Git notes only for migration | Preserves checkpoint and agent-run context for later review |
-| Evidence gate | Tabellio | Validates commands, checks, changed files, approvals, and side-effect policy |
+| Evidence gate | WritSet | Validates commands, checks, changed files, approvals, and side-effect policy |
 | Stacked review | git-spice | Keeps related GitHub pull requests small, ordered, and reviewable |
 | Agent review | Codex review | Adds optional diff and evidence review by an agent |
 
@@ -60,7 +60,7 @@ Each PR should expose:
 - external actions attempted or blocked
 - evidence artifact path
 
-The context packet is usable without a pull request. GitHub is the review and code-distribution surface; Tabellio's evidence remains independently verifiable.
+The context packet is usable without a pull request. GitHub is the review and code-distribution surface; WritSet's evidence remains independently verifiable.
 
 Raw evidence is not automatically a correctness claim. A typed validation decision proves that the exact committed evidence met the committed thresholds. Human review still owns product judgment outside the declared contract.
 

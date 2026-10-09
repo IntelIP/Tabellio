@@ -1,14 +1,14 @@
 {
   "name": "@intelip/tabellio",
   "version": "0.7.0",
-  "description": "Tabellio helps teams review AI-assisted code with evidence tied to the exact code version.",
+  "description": "WritSet helps teams understand and track context across coding-agent work.",
   "type": "module",
   "license": "Apache-2.0",
   "author": "IntelIP",
-  "homepage": "https://github.com/IntelIP/Tabellio/tree/main/docs",
+  "homepage": "https://github.com/IntelIP/WritSet/tree/main/docs",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/IntelIP/Tabellio.git"
+    "url": "git+https://github.com/IntelIP/WritSet.git"
   },
   "bin": {
     "tabellio-run": "scripts/tabellio-run.mjs",
@@ -41,7 +41,7 @@
     "tabellio-checkpoint-proof": "scripts/tabellio-checkpoint-proof.mjs"
   },
   "bugs": {
-    "url": "https://github.com/IntelIP/Tabellio/issues"
+    "url": "https://github.com/IntelIP/WritSet/issues"
   },
   "private": false,
   "publishConfig": {
@@ -129,22 +129,17 @@
     "node": ">=20"
   },
   "keywords": [
-    "agentic",
+    "writset",
+    "context-engineering",
+    "coding-agents",
+    "agent-context",
+    "agent-memory",
     "git",
-    "native-git",
-    "bare-repository",
-    "worktree",
-    "pull-request",
-    "evidence",
     "provenance",
-    "ci",
-    "workflow",
-    "tabellio",
-    "json-schema",
-    "sarif",
-    "stacked-pr",
-    "git-spice",
+    "checkpoints",
+    "codex",
     "entire",
-    "codex"
+    "workflow",
+    "tabellio"
   ]
 }

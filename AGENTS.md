@@ -1,7 +1,8 @@
 # Agent entry point
 
-Tabellio helps teams review AI-assisted code with evidence tied to the exact code
-version. Serve teams trying and connecting Tabellio before adding operator detail.
+WritSet helps teams understand and track context across coding-agent work.
+Serve teams trying and connecting WritSet before adding operator detail.
+The published package, CLI commands, and stored formats retain their Tabellio names.
 
 ## Find the right guide
 

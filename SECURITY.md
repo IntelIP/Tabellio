@@ -8,10 +8,10 @@ version and source commit when available.
 
 ## Private vulnerability reporting
 
-Use [GitHub's private report form](https://github.com/IntelIP/Tabellio/security/advisories/new).
+Use [GitHub's private report form](https://github.com/IntelIP/WritSet/security/advisories/new).
 Do not file vulnerability details in a public issue. The private form is the
 project's reporting route; ordinary bugs and questions use
-[GitHub Issues](https://github.com/IntelIP/Tabellio/issues).
+[GitHub Issues](https://github.com/IntelIP/WritSet/issues).
 
 Include the affected version/file, minimal reproduction, expected and actual
 behavior, likely impact, and safe evidence references. Explain whether the issue
@@ -41,7 +41,7 @@ configuration, disabled TLS verification, dynamic `eval`, and declared dependenc
 policy. Candidate ignore files cannot grant a pass. Remaining declared dependencies
 need vulnerability evidence. Read [scanner operations](docs/provenance.md) for limits.
 
-Tabellio does not claim complete vulnerability detection, SLSA certification,
+WritSet does not claim complete vulnerability detection, SLSA certification,
 in-toto verification, cryptographic evidence signing, complete supply-chain
 protection, or autonomous production safety. Synthetic security observations in
 the demo do not prove scanner effectiveness or live-provider security.

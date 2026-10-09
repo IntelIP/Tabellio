@@ -1,6 +1,6 @@
 # Native Git Foundation
 
-Tabellio's core works without a GitHub API or a proprietary code-storage service. It uses the installed Git executable, standard object storage, bare repositories, refs, notes, and worktrees.
+WritSet's core works without a GitHub API or a proprietary code-storage service. It uses the installed Git executable, standard object storage, bare repositories, refs, notes, and worktrees.
 
 ## Architecture
 

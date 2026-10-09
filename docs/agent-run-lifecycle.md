@@ -1,6 +1,6 @@
 # Agent Run Lifecycle
 
-Tabellio can run a complete local agent workflow without a GitHub API or proprietary code-storage service. State lives under a local run root; Git remains the code substrate.
+WritSet can run a complete local agent workflow without a GitHub API or proprietary code-storage service. State lives under a local run root; Git remains the code substrate.
 
 ## State Machine
 

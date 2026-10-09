@@ -1,11 +1,14 @@
-# Tabellio documentation
+# WritSet documentation
 
-Choose the outcome you need. Current guides describe behavior; validation and
-review records establish passing evidence for a specific code version.
+Understand and track the context behind coding-agent work: tasks, source versions,
+checkpoints, results, and handoffs. Choose the outcome you need below.
+
+WritSet was previously Tabellio. The published package, CLI commands, configuration
+files, and stored formats keep their existing names during this transition.
 
 | Route | Start here | Result |
 | --- | --- | --- |
-| **Try Tabellio** | [Published-package demo](try-tabellio.md) | Run a local sample and understand which observations are synthetic. |
+| **Try WritSet** | [Published-package demo](try-tabellio.md) | Run a local sample and understand which observations are synthetic. |
 | **Connect a repository** | [Integration setup](getting-started.md) | Add genuine checkpoints and repository-specific contracts. |
 | **Contribute** | [Contributor setup and handoffs](../CONTRIBUTING.md) | Finish one scoped change with the applicable checks. |
 | **Operate and release** | [Operator guide](operate-and-release.md) | Review protected sharing, validation, and release procedures. |
@@ -34,7 +37,7 @@ review records establish passing evidence for a specific code version.
 - [Operations hardening](operations-hardening.md) and [checkpoint proof handoff](checkpoint-proof-handoff.md).
 - [Pilot acceptance](pilot/acceptance-plan.md) and [architecture and recovery](pilot/architecture-and-recovery.md).
 - [Release notes](releases/), [changelog](../CHANGELOG.md), and [v0.7.0 launch scope](gtm/v0.7.0-launch.md).
-- [Security policy](../SECURITY.md) and [private reporting](https://github.com/IntelIP/Tabellio/security/advisories/new).
+- [Security policy](../SECURITY.md) and [private reporting](https://github.com/IntelIP/WritSet/security/advisories/new).
 
 ## Previous work
 
