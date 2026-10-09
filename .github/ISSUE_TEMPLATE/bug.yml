@@ -1,10 +1,10 @@
 name: Bug report
-description: Report a reproducible problem with current Tabellio behavior.
+description: Report a reproducible problem with current WritSet behavior.
 title: "[Bug]: "
 body:
   - type: markdown
     attributes:
-      value: "For vulnerabilities, use https://github.com/IntelIP/Tabellio/security/advisories/new. Do not include credentials, private sessions, provider bodies, or account data."
+      value: "For vulnerabilities, use https://github.com/IntelIP/WritSet/security/advisories/new. Do not include credentials, private sessions, provider bodies, or account data."
   - type: input
     id: version
     attributes:

@@ -1,6 +1,6 @@
 # Contributing
 
-Help teams try Tabellio, connect one repository, and review code with clear evidence.
+Help teams try WritSet, connect one repository, and understand their coding agents' context.
 Keep changes Git-native, agent-agnostic, dependency-light, deterministic before
 AI-assisted, and default-deny for protected external actions.
 
@@ -10,11 +10,12 @@ Use Node.js 20 or later, npm, Git 2.38 or later, and Entire 0.7.7 or later.
 CI uses Node.js 22.23.1. PostgreSQL client/server binaries are required for the
 provenance integration suite; git-spice 0.18 or later is needed for stack work.
 The package has no runtime npm dependencies. Named npm scripts below belong to
-this checkout; installed users start at [Try Tabellio](docs/try-tabellio.md).
+this checkout; installed users start at [Try WritSet](docs/try-tabellio.md).
+The published package and CLI commands still use the earlier Tabellio name.
 
 ```bash
-git clone https://github.com/IntelIP/Tabellio.git
-cd Tabellio
+git clone https://github.com/IntelIP/WritSet.git
+cd WritSet
 entire enable --agent codex --project --skip-push-sessions
 node scripts/tabellio-preflight.mjs --profile agent
 ```

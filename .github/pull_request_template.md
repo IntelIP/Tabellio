@@ -3,7 +3,7 @@
 Who benefits, what problem this solves, and the observable before/after behavior.
 List changed files, scope limits, and any unfinished work.
 
-## Tabellio Evidence
+## WritSet evidence
 
 - [ ] Evidence envelope generated
 - [ ] Evidence envelope validated
