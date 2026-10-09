@@ -128,7 +128,10 @@
               "minLength": 1
             },
             "packageName": {
-              "const": "@intelip/tabellio"
+              "enum": [
+                "@intelip/writset",
+                "@intelip/tabellio"
+              ]
             },
             "packageVersion": {
               "type": "string",
@@ -348,7 +351,10 @@
               "minLength": 1
             },
             "packageName": {
-              "const": "@intelip/tabellio"
+              "enum": [
+                "@intelip/writset",
+                "@intelip/tabellio"
+              ]
             },
             "packageVersion": {
               "type": "string",

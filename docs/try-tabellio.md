@@ -1,11 +1,13 @@
 # Try WritSet
 
-Run the published package in a new directory to see how source context is recorded,
+Run the package in a new directory to see how source context is recorded,
 rebuilt, and checked for stale or missing evidence. This sample needs no provider
 account or credentials.
 
-WritSet was previously Tabellio. Version 0.7.0 remains published as
-`@intelip/tabellio`; use the existing commands below during the naming transition.
+WritSet was previously Tabellio. Version 0.7.1 uses `@intelip/writset` and
+`writset-*` commands, with compatible `tabellio-*` aliases. The instructions below
+apply after publication; until then, use the [v0.7.0 installation](releases/v0.7.0.md).
+Existing users can follow the [migration guide](releases/v0.7.1.md).
 
 ## Requirements
 
@@ -30,12 +32,12 @@ Entire and git-spice are integration tools, not prerequisites for this sample.
 In a new directory, run:
 
 ```bash
-npm install --save-dev @intelip/tabellio@0.7.0
-npx tabellio-version --expect-version 0.7.0
-npx tabellio-provenance-demo
+npm install --save-dev @intelip/writset@0.7.1
+npx writset-version --expect-version 0.7.1
+npx writset-provenance-demo
 ```
 
-The version receipt identifies `@intelip/tabellio` and `packageVersion: "0.7.0"`.
+The version receipt identifies `@intelip/writset` and `packageVersion: "0.7.1"`.
 The demo receipt ends with `status: "passed"` and `cleanup: "passed"`. Its failure
 matrix lists expected and actual decisions. A moved base, missing independent
 security evidence, and changed replay inputs must remain blocked.
@@ -43,7 +45,7 @@ security evidence, and changed replay inputs must remain blocked.
 To retain the full receipt in this consumer directory:
 
 ```bash
-npx tabellio-provenance-demo --out demo-receipt.json
+npx writset-provenance-demo --out demo-receipt.json
 ```
 
 Git operations and the temporary local database are real. Plane, Entire, GitHub,

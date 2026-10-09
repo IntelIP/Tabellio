@@ -72,16 +72,16 @@ test("runner identity does not attribute a parent consumer repository to an inst
   await writeFile(join(consumer, "package.json"), JSON.stringify({ name: "consumer", version: "1.0.0" }));
   await runGit({ args: ["add", "package.json"], cwd: consumer });
   await runGit({ args: ["commit", "-m", "Add consumer"], cwd: consumer, env: identityEnv() });
-  const installed = join(consumer, "node_modules", "@intelip", "tabellio");
+  const installed = join(consumer, "node_modules", "@intelip", "writset");
   await mkdir(installed, { recursive: true });
   await writeFile(join(installed, "package.json"), JSON.stringify({
-    name: "@intelip/tabellio",
-    version: "0.6.0",
+    name: "@intelip/writset",
+    version: "0.7.1",
   }));
 
   assert.deepEqual(await tabellioRunnerIdentity({ root: installed }), {
-    packageName: "@intelip/tabellio",
-    packageVersion: "0.6.0",
+    packageName: "@intelip/writset",
+    packageVersion: "0.7.1",
     sourceCommit: null,
     sourceDirty: null,
     releaseTag: null,
@@ -91,12 +91,13 @@ test("runner identity does not attribute a parent consumer repository to an inst
 test("runner identity CLI workflow reports current checkout and enforces expectations", async (t) => {
   const result = await execFileAsync(process.execPath, [
     "scripts/tabellio-version.mjs",
-    "--expect-version", "0.7.0",
+    "--expect-version", "0.7.1",
     "--expect-ref", "HEAD",
   ], { cwd: new URL("..", import.meta.url), encoding: "utf8" });
   const value = JSON.parse(result.stdout);
   assert.equal(value.ok, true);
-  assert.equal(value.runner.packageVersion, "0.7.0");
+  assert.equal(value.runner.packageName, "@intelip/writset");
+  assert.equal(value.runner.packageVersion, "0.7.1");
   assert.match(value.runner.sourceCommit, /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/);
   assert.deepEqual(Object.keys(value.runner).sort(), [
     "packageName",

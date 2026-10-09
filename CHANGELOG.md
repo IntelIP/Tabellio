@@ -1,8 +1,17 @@
 # Changelog
 
-All notable changes to Tabellio are recorded here.
+All notable changes to WritSet, previously Tabellio, are recorded here.
 
 ## Unreleased
+
+### 0.7.1 — WritSet package migration
+
+- Rename the npm package to `@intelip/writset` and add `writset-*` commands.
+- Keep every existing `tabellio-*` command as a compatibility alias.
+- Accept both package identities in validation records while retaining the
+  existing schema identifiers, configuration files, Git refs, and stored data.
+- Update installation, version checks, and migration instructions. Publication
+  remains a separate release action; the existing package is unchanged.
 
 ## 0.7.0 - 2026-09-13
 

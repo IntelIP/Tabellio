@@ -28,6 +28,8 @@ test("package includes public validators and demo but excludes private local sta
     ".tabellio/validators.json",
   ]);
   const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  assert.equal(manifest.name, "@intelip/writset");
+  assert.equal(manifest.bin["writset-provenance-demo"], "scripts/demo-provenance.mjs");
   assert.equal(manifest.bin["tabellio-provenance-demo"], "scripts/demo-provenance.mjs");
   assert.ok(files.includes(manifest.bin["tabellio-provenance-demo"]));
 });

@@ -9,7 +9,7 @@ body:
     id: version
     attributes:
       label: Package version and source commit
-      description: Include tabellio-version output fields, not private machine paths.
+      description: Include writset-version output fields, not private machine paths.
       placeholder: "0.7.0; source commit if known"
     validations:
       required: true

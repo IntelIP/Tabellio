@@ -39,6 +39,7 @@ The [Space Grotesk license](assets/fonts/space-grotesk-LICENSE.txt) and original
 | Muted | `#96A4BF` | Secondary text on dark surfaces |
 
 The product name is **WritSet**. Use **WritSet** for the GitHub repository and
-public-facing prose. The existing `@intelip/tabellio` package, CLI names, schemas,
-Git refs, and stored records remain compatible during the transition. Historical
+public-facing prose. Use lowercase `@intelip/writset` for the npm package and
+`writset-*` for commands. Legacy `tabellio-*` commands, schemas, Git refs, and stored
+records remain compatible during the transition. Historical
 Tabellio assets and release records are retained as history, not current branding.

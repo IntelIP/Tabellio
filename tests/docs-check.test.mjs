@@ -39,6 +39,8 @@ const failures = [
   ["missing heading", "README.md", "[broken](docs/README.md#missing)\n", /missing local heading/],
   ["incorrect installation version", "docs/try-tabellio.md", "npm install --save-dev @intelip/tabellio@0.6.0\n", /installation version/],
   ["unpinned installation", "README.md", "npm install @intelip/tabellio\n", /found unpinned/],
+  ["incorrect WritSet installation version", "README.md", "npm install @intelip/writset@0.6.0\n", /installation version/],
+  ["unpinned WritSet installation", "README.md", "npm install @intelip/writset\n", /found unpinned/],
   ["incorrect runner version", "docs/getting-started.md", "npx tabellio-version --expect-version 0.6.0\n", /expected installation version/],
   ["mismatched templates", ".github/pull_request_template.md", "Different template\n", /differs from/],
   ["oversized README", "README.md", "line\n".repeat(151), /exceeds limit 150/],
@@ -64,7 +66,7 @@ test("docs check keeps historical release versions valid", async (t) => {
   const root = await fixture(t);
   await mkdir(join(root, "docs/releases"));
   await writeFile(join(root, "docs/releases/v0.1.0.md"), "npm install @intelip/tabellio@0.1.0\n");
-  await writeFile(join(root, "README.md"), "npm install --save-dev @intelip/tabellio@0.7.0\nnpx tabellio-version --expect-version 0.7.0\n");
+  await writeFile(join(root, "README.md"), "npm install --save-dev @intelip/writset@0.7.0\nnpx writset-version --expect-version 0.7.0\n");
   assert.deepEqual((await checkDocs(root)).errors, []);
 });
 

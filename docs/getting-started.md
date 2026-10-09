@@ -16,12 +16,16 @@ results, and unresolved work behind an agent session. Try the
 
 ## Installed-package setup
 
-In the target repository, install the published package on a trusted worker:
+After v0.7.1 is published, install the package in the target repository on a trusted worker:
 
 ```bash
-npm install --save-dev @intelip/tabellio@0.7.0
-npx tabellio-version --expect-version 0.7.0
+npm install --save-dev @intelip/writset@0.7.1
+npx writset-version --expect-version 0.7.1
 ```
+
+Existing users should remove the old package first; follow the
+[migration guide](releases/v0.7.1.md). Until publication, use the
+[v0.7.0 installation](releases/v0.7.0.md).
 
 Use installed CLIs with `npx`. Commands beginning `node scripts/` or `npm run`
 in operator guides refer to a WritSet source checkout. Source contributors use
@@ -38,7 +42,7 @@ Enable genuine checkpoints before making agent commits:
 
 ```bash
 entire enable --agent codex --project --skip-push-sessions
-npx tabellio-preflight --profile agent
+npx writset-preflight --profile agent
 ```
 
 Keep `strategy_options.push_sessions: false`. Never push
@@ -60,7 +64,7 @@ acceptance criteria, and data boundaries. WritSet ships
 Run the committed manifest against one exact candidate:
 
 ```bash
-npx tabellio-validate run --repo . --repo-id github.com/example/repository --commit HEAD --manifest tabellio.validation.json
+npx writset-validate run --repo . --repo-id github.com/example/repository --commit HEAD --manifest tabellio.validation.json
 ```
 
 The trusted worker creates an isolated worktree and executes only committed argv
@@ -68,7 +72,7 @@ arrays. Results go to `refs/tabellio/validations`. Use `gate` in CI when anythin
 other than a `passed` decision must fail the job:
 
 ```bash
-npx tabellio-validate gate --repo . --repo-id github.com/example/repository --base main --commit HEAD --manifest tabellio.validation.json
+npx writset-validate gate --repo . --repo-id github.com/example/repository --base main --commit HEAD --manifest tabellio.validation.json
 ```
 
 ## Optional stacked branches
@@ -77,7 +81,7 @@ Initialize git-spice in the working repository, then capture the local graph:
 
 ```bash
 git-spice repo init
-npx tabellio-stack --repo . --repo-id example/repository --out tabellio-stack.json
+npx writset-stack --repo . --repo-id example/repository --out tabellio-stack.json
 ```
 
 Capture reads the documented local JSON output without querying GitHub status or

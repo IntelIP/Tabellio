@@ -75,7 +75,7 @@ async function markdownFiles(root) {
 
 function checkVersions(text, name, version, errors) {
   for (const line of text.split(/\r?\n/)) {
-    const installation = /\bnpm\s+(?:install|i|add)\b/.test(line) ? line.match(/@intelip\/tabellio(?:@([^\s`"']+))?/) : null;
+    const installation = /\bnpm\s+(?:install|i|add)\b/.test(line) ? line.match(/@intelip\/(?:writset|tabellio)(?:@([^\s`"']+))?/) : null;
     if (installation && installation[1] !== version) errors.push(`${name}: installation version must be ${version}, found ${installation[1] ?? "unpinned"}`);
     for (const match of line.matchAll(/--expect-version\s+["']?([^\s`"']+)/g)) {
       if (match[1] !== version) errors.push(`${name}: expected installation version must be ${version}, found ${match[1]}`);

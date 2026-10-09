@@ -2,7 +2,7 @@
 
 Use a trusted **source checkout** for the `node scripts/...` and `npm run ...`
 commands below. Installed-package users can invoke the named public CLIs with
-`npx tabellio-...` and the same arguments; repository npm scripts belong to this
+`npx writset-...` and the same arguments; repository npm scripts belong to this
 source checkout. Start with [Connect a repository](getting-started.md).
 
 Passing evidence is tied to its code version. Sharing private evidence, publishing
@@ -30,7 +30,7 @@ Inspect the local runner identity before trusting a version claim:
 
 ```bash
 npm run tabellio:version -- \
-  --expect-version 0.7.0 \
+  --expect-version 0.7.1 \
   --expect-ref HEAD
 ```
 
@@ -67,8 +67,8 @@ node scripts/tabellio-release.mjs plan \
   --owner example \
   --remote-repo repository \
   --number 42 \
-  --version 0.7.0 \
-  --notes docs/releases/v0.7.0.md \
+  --version 0.7.1 \
+  --notes docs/releases/v0.7.1.md \
   --out /tmp/tabellio-release-intent.json
 ```
 
