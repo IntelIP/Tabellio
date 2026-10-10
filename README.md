@@ -33,20 +33,21 @@ that the next session can use.
 **Requirements:** macOS or Linux, Node.js 20+, Git 2.38+, and PostgreSQL client/server
 tools on `PATH`. See the [setup guide](docs/try-tabellio.md#requirements).
 
-In a new directory:
+After v0.7.1 is published, run in a new directory:
 
 ```bash
-npm install --save-dev @intelip/tabellio@0.7.0
-npx tabellio-version --expect-version 0.7.0
-npx tabellio-provenance-demo
+npm install --save-dev @intelip/writset@0.7.1
+npx writset-version --expect-version 0.7.1
+npx writset-provenance-demo
 ```
 
 The demo records source observations, restarts its temporary database, and rebuilds
 the stored context. A successful receipt ends with `status: "passed"` and
 `cleanup: "passed"`.
 
-**Naming transition:** WritSet was previously Tabellio. The published package and
-commands still use the earlier name; the commands above are the supported install.
+**Naming transition:** The new package is `@intelip/writset`. Existing `tabellio-*`
+commands remain supported aliases. Until publication, use the
+[v0.7.0 installation](docs/releases/v0.7.0.md). See the [migration guide](docs/releases/v0.7.1.md).
 
 ## Current scope
 

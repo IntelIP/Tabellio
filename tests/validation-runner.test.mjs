@@ -446,6 +446,11 @@ test("typed validators enforce semantic metrics and cost budgets with durable ev
   assert.equal(result.result.decision.costTelemetryComplete, true);
   assert.equal(validateValidationResult(result.result), result.result);
 
+  const migrated = structuredClone(result.result);
+  migrated.runner.packageName = "@intelip/writset";
+  const { integrity: _legacyIntegrity, ...migratedBody } = migrated;
+  migrated.integrity.digest = digestObject(migratedBody);
+  assert.equal(validateValidationResult(migrated), migrated);
   for (const [field, invalid, message] of [
     ["packageName", "@example/not-tabellio", /packageName must be/],
     ["packageVersion", "1.0.0-alpha..1", /packageVersion must be a semantic version/],

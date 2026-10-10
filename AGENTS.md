@@ -2,7 +2,8 @@
 
 WritSet helps teams understand and track context across coding-agent work.
 Serve teams trying and connecting WritSet before adding operator detail.
-The published package, CLI commands, and stored formats retain their Tabellio names.
+The package is `@intelip/writset`; `writset-*` commands have compatible `tabellio-*` aliases.
+Existing configuration names and stored formats remain compatible.
 
 ## Find the right guide
 

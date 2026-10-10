@@ -527,7 +527,9 @@ function validateResultRunner(value, schemaVersion) {
 }
 
 function validateRunnerIdentity(value) {
-  equals(value.packageName, "@intelip/tabellio", "validation result.runner.packageName");
+  if (!["@intelip/writset", "@intelip/tabellio"].includes(value.packageName)) {
+    throw new Error("validation result.runner.packageName must be @intelip/writset or @intelip/tabellio.");
+  }
   if (typeof value.packageVersion !== "string" || !SEMANTIC_VERSION.test(value.packageVersion)) {
     throw new Error("validation result.runner.packageVersion must be a semantic version.");
   }

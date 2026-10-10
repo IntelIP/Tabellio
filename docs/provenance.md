@@ -2,7 +2,7 @@
 
 For the installed-package demo, use [Try Tabellio](try-tabellio.md). Commands with
 `node scripts/...` and `npm run ...` below are for a trusted source checkout.
-Installed operators use `npx tabellio-provenance` and `npx tabellio-local-store`
+Installed operators use `npx writset-provenance` and `npx writset-local-store`
 with the corresponding CLI arguments. Follow [Operate and release](operate-and-release.md)
 before publishing statuses or sharing private evidence.
 

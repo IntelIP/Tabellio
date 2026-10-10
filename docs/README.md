@@ -3,8 +3,9 @@
 Understand and track the context behind coding-agent work: tasks, source versions,
 checkpoints, results, and handoffs. Choose the outcome you need below.
 
-WritSet was previously Tabellio. The published package, CLI commands, configuration
-files, and stored formats keep their existing names during this transition.
+WritSet was previously Tabellio. The package is `@intelip/writset`, with `writset-*`
+commands and compatible `tabellio-*` aliases. Configuration names and stored formats
+remain compatible. See the [package migration](releases/v0.7.1.md).
 
 | Route | Start here | Result |
 | --- | --- | --- |
